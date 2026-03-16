@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receipt Vault — Ebbers Construction</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #root { height: 100%; }
+    body { background: #0e0e0e; font-family: 'DM Sans', sans-serif; }
+  </style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
+
+const fmt = (n) => "$" + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const fmtDate = (d) => { if (!d) return "—"; const dt = new Date(d + "T00:00:00"); return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
+const uid = () => Math.random().toString(36).slice(2, 10);
+const COLORS = ["#E8654A","#4A90D9","#5EBB6E","#D4A843","#9B6EC6","#E07BAC","#47B5B0","#D97B3B","#7C8BA0","#C25D5D"];
+
+const CustomLogosContext = createContext({});
+
+// ─── Store domain mapping for logo resolution ───
+const STORE_DOMAINS = {
+  "menards": "menards.com",
+  "home depot": "homedepot.com",
+  "the home depot": "homedepot.com",
+  "lowe's": "lowes.com",
+  "lowes": "lowes.com",
+  "ace hardware": "acehardware.com",
+  "scheels": "scheels.com",
+  "walmart": "walmart.com",
+  "costco": "costco.com",
+  "grainger": "grainger.com",
+  "fastenal": "fastenal.com",
+  "tractor supply": "tractorsupply.com",
+  "harbor freight": "harborfreight.com",
+  "84 lumber": "84lumber.com",
+  "homestead convenienc": "phillips66.com",
+  "homestead convenience": "phillips66.com",
+  "frontier metal": "frontiermetalsupply.com",
+  "runza": "runza.com",
+  "casey": "caseys.com",
+  "casey's": "caseys.com",
+};
+
+function getStoreDomain(storeName) {
+  if (!storeName) return null;
+  const lower = storeName.toLowerCase().trim();
+  for (const [key, domain] of Object.entries(STORE_DOMAINS)) {
+    if (lower.includes(key) || key.includes(lower)) return domain;
+  }
+  // Guess domain from store name
+  const cleaned = lower.replace(/[^a-z0-9]/g, '');
+  if (cleaned.length > 2) return cleaned + ".com";
+  return null;
+}
+
+// Returns logo URL only for custom uploads — external APIs are unreliable in sandboxed environments
+function getLogoUrls(storeName) {
+  return []; // External logos disabled — use custom uploads via Stores tab
+}
+
+const STORE_COLORS = {
+  "menards": "#2E7D32",
+  "home depot": "#F96302",
+  "the home depot": "#F96302",
+  "lowe's": "#004990",
+  "lowes": "#004990",
+  "scheels": "#1A1A1A",
+  "ace hardware": "#D40000",
+  "homestead convenienc": "#003087",
+  "homestead convenience": "#003087",
+  "frontier metal": "#B44C2A",
+  "walmart": "#0071CE",
+  "costco": "#E31837",
+  "grainger": "#CC0000",
+  "fastenal": "#003DA5",
+  "tractor supply": "#D42029",
+  "harbor freight": "#CC0000",
+  "casey": "#E31837",
+  "casey's": "#E31837",
+  "runza": "#C8102E",
+};
+
+function StoreLogo({ store, size = 32, customLogos: propLogos }) {
+  const contextLogos = useContext(CustomLogosContext);
+  const customLogos = propLogos || contextLogos || {};
+  const lower = (store || "").toLowerCase().trim();
+  const customLogo = customLogos[lower] || customLogos[store];
+  const bgColor = Object.entries(STORE_COLORS).find(([k]) => lower.includes(k))?.[1] || '#333';
+  const initial = (store || "?")[0].toUpperCase();
+  const [imgOk, setImgOk] = useState(false);
+  const [imgErr, setImgErr] = useState(false);
+
+  // Reset when custom logo changes
+  useEffect(() => { setImgOk(false); setImgErr(false); }, [customLogo]);
+
+  // If we have a custom uploaded logo, try to show it
+  if (customLogo && !imgErr) {
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: size * 0.28,
+        background: imgOk ? 'transparent' : bgColor,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        overflow: 'hidden', position: 'relative',
+      }}>
+        {!imgOk && <span style={{ fontSize: size * 0.45, fontWeight: 700, color: '#fff', fontFamily: "'DM Sans', sans-serif" }}>{initial}</span>}
+        <img
+          src={customLogo} alt={store}
+          style={{
+            width: size, height: size, objectFit: 'contain',
+            opacity: imgOk ? 1 : 0, position: imgOk ? 'static' : 'absolute',
+            transition: 'opacity 0.2s',
+          }}
+          onLoad={() => setImgOk(true)}
+          onError={() => setImgErr(true)}
+        />
+      </div>
+    );
+  }
+
+  // Default: branded colored initial
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size * 0.28, background: bgColor,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.45, fontWeight: 700, color: '#fff', flexShrink: 0,
+      fontFamily: "'DM Sans', sans-serif",
+    }}>{initial}</div>
+  );
+}
+
+async function parseReceiptsWithAI(base64pdf) {
+  const systemPrompt = `You are a receipt data extraction AI. Extract EVERY distinct receipt or picking ticket from this PDF into structured JSON.
+
+CRITICAL DEDUPLICATION RULES:
+- This PDF likely contains DUPLICATE pages — the same receipt appears TWICE: once as extracted OCR text and once as a scanned photo/image. You MUST only extract each unique receipt ONCE.
+- To identify duplicates: if two pages have the same store, same date, same total, and same items — they are the SAME receipt. Only output it once.
+- SKIP rebate receipt pages entirely (do not create entries for them)
+- Menards "GATE PASS COPY - PICKING TICKET" pages ARE receipts — use the LINS order number (e.g. "LINS 87720") as "po"
+- Combine multi-page picking tickets with the SAME LINS number into ONE receipt entry
+- Home Depot: use "PO/JOB NAME:" value as "po" field
+- Refund receipts: use NEGATIVE amounts for total and items
+- Gas/fuel receipts: item = fuel type + gallons purchased
+- Use EXTENDED PRICE (qty × unit price) as line item total, NOT just the unit price
+- Clean up item names to be human-readable. Use the longer product description if available.
+- For convenience store items (food, drinks), use the readable product name
+
+MATERIAL ID RULES (CRITICAL):
+Each item MUST have a "materialId" — a standardized lowercase identifier so the SAME product purchased on different receipts or from different stores can be matched together for price tracking. Rules:
+- Use a consistent format: lowercase, no special characters except hyphens
+- For lumber: "2x4-8ft-spf", "2x6-16ft-spf", "2x12-16ft-fir", "2x12-16ft-treated"
+- For fasteners: "polebarn-nail-30d-5lb", "ext-screw-2.5in-25lb", "ext-screw-3in-25lb"
+- For fuel: "diesel-2" (always, regardless of how the receipt prints it — "DIESEL #2", "Diesel 2 Fuel", "PLUS", "DIESEL NO 2" are ALL "diesel-2"). For regular gas use "gasoline-regular", premium use "gasoline-premium", midgrade use "gasoline-midgrade"
+- For food/drinks: "chicken-philly-sandwich", "gatorade-midnight-berry", "dr-pepper-20oz"
+- For building materials: "housewrap-3x100", "housewrap-10x100", "seam-tape-55yd", "seam-tape-164ft"
+- For clothing: "carhartt-pocket-tee-l", "carhartt-force-short-34"
+- For tools: "staple-hammer-tacker", "t50-staples-0.5in"
+- For glue/adhesive: "titebond-iii-1gal"
+- For doors: "steel-6panel-door-36x80-lh"
+- For LVL beams: "lvl-1.75x11.875-17ft"
+- If an item has a real SKU number from the store, incorporate it: "menards-102-1101" or use it as the materialId
+- The SAME physical product must ALWAYS get the SAME materialId regardless of which store it was bought at or how the receipt abbreviates it
+- When in doubt, use the most descriptive short identifier that would let you match this exact product across stores
+
+BEFORE returning your JSON, review your results and REMOVE any entries that are duplicates of each other (same store + date + total).
+
+Return ONLY valid JSON array, no markdown, no backticks:
+[{
+  "store": "Store Name",
+  "date": "YYYY-MM-DD",
+  "po": "order/PO number or empty string",
+  "tax": 0.00,
+  "total": 0.00,
+  "items": [{"name": "Human readable name", "materialId": "lowercase-standardized-id", "sku": "Store SKU or empty", "qty": 1, "unit": "ea", "unitPrice": 0.00, "total": 0.00}],
+  "type": "sale|refund|fuel|food",
+  "pageNumbers": [1]
+}]`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64pdf } },
+          { type: "text", text: "Extract all UNIQUE receipts from this PDF. Remember: many pages are duplicates (OCR text + photo of same receipt). Only output each receipt once. Return only the JSON array." }
+        ]
+      }]
+    })
+  });
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message || "API error");
+  const text = data.content?.map(b => b.text || "").join("") || "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  let parsed = JSON.parse(clean);
+  if (!Array.isArray(parsed)) parsed = [parsed];
+
+  // Post-parse self-dedup: remove duplicates the AI still returned
+  const seen = new Set();
+  const deduped = [];
+  for (const r of parsed) {
+    // Fingerprint: store + date + total rounded to nearest dollar + item count
+    const fp = `${(r.store||'').toLowerCase().trim()}|${r.date}|${Math.round(Number(r.total || 0))}|${(r.items||[]).length}`;
+    if (seen.has(fp)) continue;
+    // Also check fuzzy: same store+date, total within $1
+    let isDupe = false;
+    for (const existing of deduped) {
+      if ((existing.store||'').toLowerCase().trim() === (r.store||'').toLowerCase().trim()
+        && existing.date === r.date
+        && Math.abs((existing.total||0) - (r.total||0)) < 1.00
+        && Math.abs((existing.items||[]).length - (r.items||[]).length) <= 1) {
+        isDupe = true;
+        break;
+      }
+    }
+    if (isDupe) continue;
+    seen.add(fp);
+    deduped.push(r);
+  }
+  return deduped;
+}
+
+function generateDemoData() {
+  const items = [
+    { store: "Menards", date: "2025-07-06", po: "LINS 87719", tax: 0, total: 2855.66, type: "sale", items: [
+      { name: "2x4x8' Construction/Framing Lumber", materialId: "2x4-8ft-spf", sku: "102-1101", qty: 25, unit: "ea", unitPrice: 3.64, total: 91.00 },
+      { name: "2x4x18' Construction/Framing Lumber", materialId: "2x4-18ft-spf", sku: "102-1156", qty: 70, unit: "ea", unitPrice: 9.89, total: 692.30 },
+      { name: "2x6x16' Construction/Framing Lumber", materialId: "2x6-16ft-spf", sku: "102-1790", qty: 140, unit: "ea", unitPrice: 10.43, total: 1460.20 },
+      { name: "2x12x16' #2 & Better Framing Lumber", materialId: "2x12-16ft-fir", sku: "102-2184", qty: 2, unit: "ea", unitPrice: 26.37, total: 52.74 },
+      { name: "1-3/4\" x 11-7/8\" x 17' LVL 1.9E", materialId: "lvl-1.75x11.875-17ft", sku: "106-1572", qty: 2, unit: "ea", unitPrice: 130.05, total: 260.10 },
+      { name: "2x12x16' AC2 Green Treated Ground Contact Lumber", materialId: "2x12-16ft-treated", sku: "111-1969", qty: 7, unit: "ea", unitPrice: 42.76, total: 299.32 },
+    ]},
+    { store: "Menards", date: "2025-07-07", po: "LINS 88123", tax: 0, total: 641.43, type: "sale", items: [
+      { name: "Block-It 1-7/8\" x 164' Seam Tape", materialId: "seam-tape-164ft", sku: "161-3240", qty: 1, unit: "ea", unitPrice: 12.49, total: 12.49 },
+      { name: "30D Hot Dipped Galvanized Post Frame Nail - 5 lb", materialId: "polebarn-nail-30d-5lb", sku: "230-1436", qty: 2, unit: "ea", unitPrice: 26.99, total: 53.98 },
+      { name: "#10 x 2-1/2\" Exterior Construction Screw - 25 lb", materialId: "ext-screw-2.5in-25lb", sku: "230-2230", qty: 1, unit: "ea", unitPrice: 154.98, total: 154.98 },
+      { name: "#10 x 3\" Exterior Construction Screw - 25 lb", materialId: "ext-screw-3in-25lb", sku: "230-2233", qty: 1, unit: "ea", unitPrice: 154.98, total: 154.98 },
+      { name: "36\"W x 80\"H 6-Panel Prehung Exterior Door - Left", materialId: "steel-6panel-door-36x80-lh", sku: "414-0337", qty: 1, unit: "ea", unitPrice: 265.00, total: 265.00 },
+    ]},
+    { store: "Home Depot", date: "2025-05-19", po: "kelly", tax: 8.23, total: 121.69, type: "sale", items: [
+      { name: "Everbilt 3'x100' Non-Woven Housewrap", materialId: "housewrap-3x100", sku: "", qty: 1, unit: "ea", unitPrice: 52.80, total: 52.80 },
+      { name: "EVB Seam Tape 1-7/8\" x 55 Yards", materialId: "seam-tape-55yd", sku: "", qty: 1, unit: "ea", unitPrice: 12.72, total: 12.72 },
+      { name: "Arrow HT50 Staple Hammer Tacker", materialId: "staple-hammer-tacker", sku: "", qty: 1, unit: "ea", unitPrice: 34.97, total: 34.97 },
+      { name: "Arrow 1/2\" T50 Staples 5000pk", materialId: "t50-staples-0.5in-5000pk", sku: "", qty: 1, unit: "ea", unitPrice: 12.97, total: 12.97 },
+    ]},
+  ];
+  return items.map(r => ({ ...r, id: uid(), items: r.items.map(it => ({ ...it, id: uid() })), pageNumbers: [] }));
+}
+
+function UploadPanel({ queue, addToQueue, clearQueue, removeFromQueue, totalResult, onSwitchToReceipts }) {
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef();
+
+  const isProcessing = queue.some(q => q.status === 'reading' || q.status === 'parsing');
+  const waitingCount = queue.filter(q => q.status === 'waiting').length;
+  const doneCount = queue.filter(q => q.status === 'done').length;
+  const errorCount = queue.filter(q => q.status === 'error').length;
+  const activeItem = queue.find(q => q.status === 'reading' || q.status === 'parsing');
+  const hasFinished = queue.length > 0 && queue.every(q => q.status === 'done' || q.status === 'error');
+
+  const statusIcon = (s) => s === 'waiting' ? '⏳' : (s === 'reading' || s === 'parsing') ? '⚙️' : s === 'done' ? '✅' : s === 'error' ? '❌' : '📄';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div
+        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+        onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+        onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragging(false); addToQueue(e.dataTransfer.files); }}
+        onClick={() => fileRef.current?.click()}
+        style={{ border: `2px dashed ${dragging ? '#E8654A' : '#3a3a3a'}`, borderRadius: 16, padding: isProcessing ? '28px 24px' : '48px 24px', textAlign: 'center', cursor: 'pointer', background: dragging ? 'rgba(232,101,74,0.06)' : 'rgba(255,255,255,0.02)', transition: 'all 0.3s' }}
+      >
+        <input ref={fileRef} type="file" accept=".pdf,application/pdf" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files?.length > 0) addToQueue(e.target.files); }} />
+        {isProcessing ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+            <div style={{ width: 28, height: 28, border: '3px solid #E8654A', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ color: '#ccc', fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>Processing {activeItem?.name || '...'}<span style={{ color: '#666', fontSize: 12 }}> ({doneCount + 1}/{queue.length})</span></div>
+              <div style={{ color: '#888', fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>{activeItem?.status === 'reading' ? 'Reading file...' : 'AI extracting receipts...'}{waitingCount > 0 && ` · ${waitingCount} more in queue`}</div>
+            </div>
+            <div style={{ color: '#666', fontSize: 12, fontFamily: "'DM Sans', sans-serif", borderLeft: '1px solid #333', paddingLeft: 14, marginLeft: 4 }}>+ Drop more PDFs</div>
+          </div>
+        ) : (
+          <><div style={{ fontSize: 42, marginBottom: 12 }}>📄</div>
+            <div style={{ color: '#eee', fontSize: 17, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>Drop PDF receipts here</div>
+            <div style={{ color: '#888', fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>or click to browse · Select multiple files · They process one at a time</div></>
+        )}
+      </div>
+
+      {queue.length > 0 && (
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#aaa', fontFamily: "'DM Sans', sans-serif" }}>Upload Queue <span style={{ fontWeight: 400, color: '#666', marginLeft: 8 }}>{doneCount}/{queue.length} complete{errorCount > 0 && ` · ${errorCount} failed`}</span></span>
+            {hasFinished && <button onClick={clearQueue} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #333', background: 'transparent', color: '#888', cursor: 'pointer', fontSize: 11, fontFamily: "'DM Sans', sans-serif" }}>Clear Queue</button>}
+          </div>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {queue.map(q => (
+              <div key={q.id} style={{ padding: '10px 18px', borderBottom: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', gap: 12, background: (q.status === 'reading' || q.status === 'parsing') ? 'rgba(232,101,74,0.04)' : 'transparent' }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>{statusIcon(q.status)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: '#ddd', fontFamily: "'DM Sans', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.name}</div>
+                  <div style={{ fontSize: 11, color: '#888', fontFamily: "'DM Sans', sans-serif" }}>
+                    {q.status === 'waiting' && 'Waiting...'}{q.status === 'reading' && 'Reading file...'}{q.status === 'parsing' && 'AI extracting receipts...'}
+                    {q.status === 'done' && q.result && `${q.result.added} receipt${q.result.added !== 1 ? 's' : ''} added${q.result.skipped > 0 ? `, ${q.result.skipped} dup${q.result.skipped !== 1 ? 's' : ''} skipped` : ''}`}
+                    {q.status === 'error' && <span style={{ color: '#E8654A' }}>{q.error}</span>}
+                  </div>
+                </div>
+                {(q.status === 'reading' || q.status === 'parsing') && <div style={{ width: 20, height: 20, border: '2px solid #E8654A', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />}
+                {q.status === 'waiting' && <button onClick={e => { e.stopPropagation(); removeFromQueue(q.id); }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {totalResult && hasFinished && (
+        <div style={{ background: totalResult.added > 0 ? 'rgba(94,187,110,0.1)' : 'rgba(212,168,67,0.1)', border: `1px solid ${totalResult.added > 0 ? 'rgba(94,187,110,0.3)' : 'rgba(212,168,67,0.3)'}`, borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 24 }}>{totalResult.added > 0 ? '✅' : '⚠️'}</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: totalResult.added > 0 ? '#5EBB6E' : '#D4A843' }}>{totalResult.added > 0 ? `${totalResult.added} receipt${totalResult.added !== 1 ? 's' : ''} added from ${totalResult.files} file${totalResult.files !== 1 ? 's' : ''}` : 'No new receipts added'}</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{totalResult.skipped > 0 ? `${totalResult.skipped} duplicate${totalResult.skipped !== 1 ? 's' : ''} skipped` : 'All items parsed from your PDFs'}{errorCount > 0 && ` · ${errorCount} failed`}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {totalResult.added > 0 && <button onClick={() => onSwitchToReceipts?.()} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#5EBB6E', color: '#fff', fontWeight: 600, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>View Receipts</button>}
+            <button onClick={clearQueue} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #333', cursor: 'pointer', background: 'transparent', color: '#aaa', fontWeight: 500, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>Upload More</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Slot machine spinning drum ───
+const DRUM_DIGITS = ['0','1','2','3','4','5','6','7','8','9'];
+const DIGIT_H = 1.2; // em per digit
+
+function SpinningDigit({ digit, delay = 0, duration = 1200 }) {
+  const targetIdx = DRUM_DIGITS.indexOf(digit);
+  const [offset, setOffset] = useState(targetIdx);
+  const [animate, setAnimate] = useState(false);
+  const prevRef = useRef(digit);
+  const timersRef = useRef([]);
+
+  useEffect(() => {
+    if (digit === prevRef.current) return;
+    const oldIdx = DRUM_DIGITS.indexOf(prevRef.current);
+    const newIdx = DRUM_DIGITS.indexOf(digit);
+    prevRef.current = digit;
+    if (oldIdx === -1 || newIdx === -1) { setOffset(newIdx); return; }
+
+    timersRef.current.forEach(t => clearTimeout(t));
+    timersRef.current = [];
+
+    // Always spin at least 2 full rotations + the distance to target
+    // This ensures even 5→6 looks like a real spin
+    let dist = newIdx - oldIdx;
+    if (dist <= 0) dist += 10;
+    const spinTarget = oldIdx + dist + 20; // +20 = two full extra rotations
+
+    // Step 1: snap to old position
+    setAnimate(false);
+    setOffset(oldIdx);
+
+    // Step 2: start the spin
+    const t1 = setTimeout(() => {
+      setAnimate(true);
+      setOffset(spinTarget);
+    }, delay + 15);
+
+    // Step 3: snap to clean position after animation
+    const t2 = setTimeout(() => {
+      setAnimate(false);
+      setOffset(newIdx);
+    }, delay + duration + 40);
+
+    timersRef.current = [t1, t2];
+    return () => timersRef.current.forEach(t => clearTimeout(t));
+  }, [digit, delay, duration]);
+
+  const drums = [...DRUM_DIGITS, ...DRUM_DIGITS, ...DRUM_DIGITS];
+  const translateEm = -(offset % 10) * DIGIT_H;
+
+  return (
+    <span style={{
+      display: 'inline-block', overflow: 'hidden',
+      height: `${DIGIT_H}em`, width: '0.62em',
+    }}>
+      <span style={{
+        display: 'block',
+        transform: `translateY(${translateEm}em)`,
+        transition: animate ? `transform ${duration}ms cubic-bezier(0.2, 0.6, 0.2, 1)` : 'none',
+        willChange: 'transform',
+      }}>
+        {drums.map((d, i) => (
+          <span key={i} style={{
+            display: 'block', height: `${DIGIT_H}em`, lineHeight: `${DIGIT_H}em`,
+            textAlign: 'center',
+          }}>{d}</span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function AnimatedValue({ value, color, fontSize = 28 }) {
+  const chars = String(value).split('');
+
+  let digitCount = 0;
+  return (
+    <div style={{
+      fontSize, fontWeight: 700, color: color || '#eee',
+      fontFamily: "'Space Mono', monospace", marginBottom: 4,
+      display: 'flex', alignItems: 'baseline', lineHeight: `${DIGIT_H}em`,
+    }}>
+      {chars.map((ch, i) => {
+        if (/\d/.test(ch)) {
+          const idx = digitCount++;
+          // Each successive digit spins slightly longer and starts later for cascade
+          return <SpinningDigit key={`d-${i}-${chars.length}`} digit={ch} delay={idx * 80} duration={1000 + idx * 80} />;
+        }
+        return <span key={`s-${i}`} style={{ display: 'inline-block', lineHeight: `${DIGIT_H}em` }}>{ch}</span>;
+      })}
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, color }) {
+  const [displayedSub, setDisplayedSub] = useState(sub);
+  const [subFading, setSubFading] = useState(false);
+  const prevSubRef = useRef(sub);
+  useEffect(() => {
+    if (sub !== prevSubRef.current) {
+      setSubFading(true);
+      const t = setTimeout(() => { setDisplayedSub(sub); setSubFading(false); }, 200);
+      prevSubRef.current = sub;
+      return () => clearTimeout(t);
+    }
+  }, [sub]);
+  return (<div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid #2a2a2a', borderRadius: 14, padding: '20px 22px', flex: '1 1 200px', minWidth: 180 }}>
+    <div style={{ fontSize: 12, color: '#888', fontFamily: "'DM Sans', sans-serif", textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 8 }}>{label}</div>
+    <AnimatedValue value={value} color={color} />
+    {sub && <div style={{ fontSize: 12, color: '#666', fontFamily: "'DM Sans', sans-serif", transition: 'opacity 0.2s', opacity: subFading ? 0.3 : 1 }}>{subFading ? displayedSub : sub}</div>}
+  </div>);
+}
+
+function BarChart({ data, showLogos }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (<div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    {data.map((d, i) => (<div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {showLogos && <StoreLogo store={d.label} size={24} />}
+      <div style={{ width: showLogos ? 110 : 140, fontSize: 12, color: '#aaa', fontFamily: "'DM Sans', sans-serif", textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</div>
+      <div style={{ flex: 1, height: 28, background: '#1a1a1a', borderRadius: 6, overflow: 'hidden' }}>
+        <div style={{ width: `${(d.value / max) * 100}%`, height: '100%', background: `linear-gradient(90deg, ${COLORS[i % COLORS.length]}, ${COLORS[i % COLORS.length]}aa)`, borderRadius: 6, transition: 'width 0.6s ease', minWidth: 2 }} />
+      </div>
+      <div style={{ width: 80, fontSize: 13, color: '#ccc', fontFamily: "'Space Mono', monospace", textAlign: 'right', flexShrink: 0 }}>{fmt(d.value)}</div>
+    </div>))}
+  </div>);
+}
+
+function Sparkline({ points, width = 120, height = 36, color = '#5EBB6E' }) {
+  if (points.length < 2) return <span style={{ color: '#555', fontSize: 11 }}>—</span>;
+  const min = Math.min(...points); const max = Math.max(...points); const range = max - min || 1; const step = width / (points.length - 1);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${i * step},${height - ((p - min) / range) * (height - 4) - 2}`).join(' ');
+  return <svg width={width} height={height} style={{ display: 'block' }}><path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function ReceiptViewer({ receipt, onClose }) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  if (!receipt) return null;
+  const zBtn = { width: 32, height: 32, borderRadius: 8, border: '1px solid #333', background: '#252525', color: '#ccc', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '90%', maxWidth: 900, maxHeight: '90vh', background: '#1a1a1a', borderRadius: 20, border: '1px solid #333', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div><div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><StoreLogo store={receipt.store} size={34} /><div><div style={{ fontSize: 18, fontWeight: 700, color: '#eee' }}>{receipt.store}</div><div style={{ fontSize: 13, color: '#888' }}>{fmtDate(receipt.date)}{receipt.po ? ` · ${receipt.po}` : ''}{receipt.type === 'refund' ? ' · REFUND' : ''}</div></div></div></div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} style={zBtn}>−</button>
+            <span style={{ color: '#aaa', fontSize: 13, fontFamily: "'Space Mono', monospace", width: 48, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} style={zBtn}>+</button>
+            <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ ...zBtn, fontSize: 12, width: 'auto', padding: '4px 10px' }}>Reset</button>
+            <button onClick={onClose} style={{ ...zBtn, background: '#E8654A22', color: '#E8654A' }}>✕</button>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+          <div style={{ transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`, transformOrigin: 'top left', transition: dragging ? 'none' : 'transform 0.2s', cursor: dragging ? 'grabbing' : 'grab' }}
+            onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
+            onMouseMove={e => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
+            onMouseUp={() => setDragging(false)} onMouseLeave={() => setDragging(false)}>
+            <div style={{ background: '#fafaf5', color: '#222', padding: '40px 32px', borderRadius: 8, fontFamily: "'Courier New', monospace", fontSize: 13, lineHeight: 1.8, minWidth: 380, maxWidth: 500, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+              <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 20, marginBottom: 4 }}>{receipt.store}</div>
+              <div style={{ textAlign: 'center', fontSize: 11, color: '#666', marginBottom: 4 }}>{fmtDate(receipt.date)}</div>
+              {receipt.po && <div style={{ textAlign: 'center', fontSize: 11, color: '#666', marginBottom: 8 }}>Order: {receipt.po}</div>}
+              {receipt.type === 'refund' && <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 14, color: '#c00', marginBottom: 8 }}>*** REFUND ***</div>}
+              <div style={{ borderTop: '1px dashed #ccc', marginBottom: 12 }} />
+              {receipt.items.map(it => (
+                <div key={it.id} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <span style={{ fontSize: 12, flex: 1 }}>{it.qty > 1 ? `${it.qty}x ` : ''}{it.name}</span>
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(it.total)}</span>
+                  </div>
+                  {it.qty > 1 && <div style={{ fontSize: 10, color: '#999', paddingLeft: 12 }}>@ {fmt(it.unitPrice)}/{it.unit}{it.sku ? ` · SKU: ${it.sku}` : ''}</div>}
+                  {it.qty <= 1 && it.sku && <div style={{ fontSize: 10, color: '#999', paddingLeft: 12 }}>SKU: {it.sku}</div>}
+                </div>
+              ))}
+              <div style={{ borderTop: '1px dashed #ccc', margin: '12px 0' }} />
+              {receipt.tax > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}><span>TAX</span><span>{fmt(receipt.tax)}</span></div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 18 }}><span>TOTAL</span><span>{fmt(receipt.total)}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PriceChart({ purchases, storeName }) {
+  // SVG line chart of price over time, colored by store
+  const sorted = [...purchases].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length === 0) return null;
+  const W = 560, H = 200, PAD = { t: 20, r: 20, b: 40, l: 60 };
+  const plotW = W - PAD.l - PAD.r, plotH = H - PAD.t - PAD.b;
+  const prices = sorted.map(p => p.price);
+  const minP = Math.min(...prices) * 0.95;
+  const maxP = Math.max(...prices) * 1.05;
+  const rangeP = maxP - minP || 1;
+
+  const storeColors = {};
+  let ci = 0;
+  sorted.forEach(p => { if (!storeColors[p.store]) storeColors[p.store] = COLORS[ci++ % COLORS.length]; });
+
+  const x = (i) => PAD.l + (sorted.length === 1 ? plotW / 2 : (i / (sorted.length - 1)) * plotW);
+  const y = (p) => PAD.t + plotH - ((p - minP) / rangeP) * plotH;
+
+  // Grid lines
+  const gridLines = 4;
+  const gridVals = Array.from({ length: gridLines + 1 }, (_, i) => minP + (rangeP / gridLines) * i);
+
+  // Build paths per store
+  const byStore = {};
+  sorted.forEach((p, i) => {
+    if (!byStore[p.store]) byStore[p.store] = [];
+    byStore[p.store].push({ ...p, idx: i });
+  });
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: 'auto' }}>
+      {/* Grid */}
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={PAD.l} y1={y(v)} x2={W - PAD.r} y2={y(v)} stroke="#222" strokeWidth="1" />
+          <text x={PAD.l - 8} y={y(v) + 4} textAnchor="end" fill="#666" fontSize="10" fontFamily="Space Mono, monospace">${v.toFixed(2)}</text>
+        </g>
+      ))}
+      {/* Lines per store */}
+      {Object.entries(byStore).map(([store, pts]) => {
+        if (pts.length < 2) return null;
+        const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.idx)},${y(p.price)}`).join(' ');
+        return <path key={store} d={d} fill="none" stroke={storeColors[store]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />;
+      })}
+      {/* Dots */}
+      {sorted.map((p, i) => (
+        <g key={i}>
+          <circle cx={x(i)} cy={y(p.price)} r="5" fill={storeColors[p.store]} stroke="#0e0e0e" strokeWidth="2" />
+          {sorted.length <= 12 && (
+            <text x={x(i)} y={H - PAD.b + 16} textAnchor="middle" fill="#666" fontSize="9" fontFamily="DM Sans, sans-serif">
+              {p.date.slice(5)}
+            </text>
+          )}
+        </g>
+      ))}
+      {/* Legend */}
+      {Object.entries(storeColors).map(([store, color], i) => (
+        <g key={store} transform={`translate(${PAD.l + i * 130}, ${H - 6})`}>
+          <circle cx="0" cy="-3" r="4" fill={color} />
+          <text x="8" y="0" fill="#aaa" fontSize="10" fontFamily="DM Sans, sans-serif">{store}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function PricingHistory({ receipts, onViewReceipt }) {
+  const [search, setSearch] = useState("");
+  const [sortCol, setSortCol] = useState("name");
+  const [sortDir, setSortDir] = useState(1);
+  const [selected, setSelected] = useState(null); // selected material name
+
+  // Build receipt lookup for linking purchases back to receipts
+  const receiptLookup = useMemo(() => {
+    const map = {};
+    receipts.forEach(r => {
+      r.items.forEach(it => {
+        const key = `${it.name}|${r.date}|${r.store}|${it.unitPrice}`;
+        map[key] = r;
+      });
+    });
+    return map;
+  }, [receipts]);
+
+  const history = useMemo(() => {
+    const map = {};
+    receipts.filter(r => r.type !== "refund").forEach(r => r.items.forEach(it => {
+      // Group by materialId if available, otherwise fall back to name
+      const key = it.materialId || it.name;
+      if (!map[key]) map[key] = { key, name: it.name, materialId: it.materialId || "", unit: it.unit, names: new Set(), purchases: [] };
+      map[key].names.add(it.name);
+      map[key].purchases.push({ date: r.date, store: r.store, price: it.unitPrice, qty: it.qty, po: r.po, receiptId: r.id, name: it.name });
+    }));
+    return Object.values(map).map(m => {
+      // Use the most common name as the display name
+      const nameFreq = {};
+      m.purchases.forEach(p => { nameFreq[p.name] = (nameFreq[p.name] || 0) + 1; });
+      m.displayName = Object.entries(nameFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || m.name;
+      m.altNames = [...m.names].filter(n => n !== m.displayName);
+      m.purchases.sort((a, b) => b.date.localeCompare(a.date));
+      m.avgPrice = m.purchases.reduce((s, p) => s + p.price, 0) / m.purchases.length;
+      m.lastPrice = m.purchases[0]?.price || 0; m.minPrice = Math.min(...m.purchases.map(p => p.price)); m.maxPrice = Math.max(...m.purchases.map(p => p.price));
+      m.totalQty = m.purchases.reduce((s, p) => s + p.qty, 0); m.priceHistory = m.purchases.map(p => p.price).reverse();
+      const prev = m.purchases[1]?.price; m.change = prev ? ((m.lastPrice - prev) / prev) * 100 : 0;
+      // Store comparison
+      const byStore = {};
+      m.purchases.forEach(p => {
+        if (!byStore[p.store]) byStore[p.store] = { store: p.store, prices: [], totalQty: 0 };
+        byStore[p.store].prices.push(p.price);
+        byStore[p.store].totalQty += p.qty;
+      });
+      m.storeComparison = Object.values(byStore).map(s => ({
+        ...s,
+        avgPrice: s.prices.reduce((a, b) => a + b, 0) / s.prices.length,
+        minPrice: Math.min(...s.prices),
+        maxPrice: Math.max(...s.prices),
+        count: s.prices.length,
+      })).sort((a, b) => a.avgPrice - b.avgPrice);
+      return m;
+    });
+  }, [receipts]);
+
+  const filtered = useMemo(() => {
+    let arr = history;
+    if (search) arr = arr.filter(m => m.displayName.toLowerCase().includes(search.toLowerCase()) || m.materialId.toLowerCase().includes(search.toLowerCase()) || m.altNames.some(n => n.toLowerCase().includes(search.toLowerCase())));
+    arr.sort((a, b) => { let v; if (sortCol === "name") v = a.displayName.localeCompare(b.displayName); else if (sortCol === "last") v = a.lastPrice - b.lastPrice; else if (sortCol === "avg") v = a.avgPrice - b.avgPrice; else if (sortCol === "change") v = a.change - b.change; else if (sortCol === "qty") v = a.totalQty - b.totalQty; return (v || 0) * sortDir; });
+    return arr;
+  }, [history, search, sortCol, sortDir]);
+
+  const handleSort = col => { if (sortCol === col) setSortDir(d => -d); else { setSortCol(col); setSortDir(1); } };
+  const th = col => ({ padding: '10px 14px', textAlign: 'left', fontSize: 11, color: sortCol === col ? '#E8654A' : '#888', fontFamily: "'DM Sans', sans-serif", textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', borderBottom: '1px solid #2a2a2a' });
+
+  const findReceipt = (purchase) => receipts.find(r => r.id === purchase.receiptId);
+
+  return (<div>
+    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search materials..." style={{ width: '100%', padding: '12px 16px', borderRadius: 10, border: '1px solid #2a2a2a', background: '#151515', color: '#ddd', fontSize: 14, fontFamily: "'DM Sans', sans-serif", marginBottom: 16, outline: 'none', boxSizing: 'border-box' }} />
+
+    {/* Table with inline expandable detail */}
+    <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #2a2a2a' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 750 }}>
+        <thead><tr style={{ background: '#151515' }}>
+          {[["name","Material"],["last","Last Price"],["avg","Avg Price"],["change","Change"]].map(([c,l]) => <th key={c} onClick={() => handleSort(c)} style={th(c)}>{l} {sortCol === c ? (sortDir > 0 ? "↑" : "↓") : ""}</th>)}
+          <th style={{ ...th("trend"), cursor: 'default' }}>Trend</th>
+          <th style={{ ...th("stores"), cursor: 'default' }}>Stores</th>
+          <th onClick={() => handleSort("qty")} style={th("qty")}>Total Qty {sortCol === "qty" ? (sortDir > 0 ? "↑" : "↓") : ""}</th>
+        </tr></thead>
+        <tbody>
+          {filtered.length === 0 && <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#555' }}>No materials found</td></tr>}
+          {filtered.map(m => {
+            const isOpen = selected === m.key;
+            const purchaseCount = m.purchases.length;
+            const uniqueReceipts = new Set(m.purchases.map(p => p.receiptId)).size;
+            return (
+              <React.Fragment key={m.key}>
+                {/* Material Row */}
+                <tr
+                  style={{ borderBottom: isOpen ? 'none' : '1px solid #1e1e1e', cursor: 'pointer', background: isOpen ? 'rgba(232,101,74,0.05)' : 'transparent', transition: 'background 0.15s' }}
+                  onClick={() => setSelected(isOpen ? null : m.key)}
+                  onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                  onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <td style={{ padding: '12px 14px', color: isOpen ? '#E8654A' : '#ddd', fontSize: 14, fontWeight: 500 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: isOpen ? '#E8654A' : '#555', transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                      <span>{m.displayName}</span>
+                      {purchaseCount > 1 && (
+                        <span title={`Bought on ${uniqueReceipts} receipt${uniqueReceipts !== 1 ? 's' : ''}`} style={{
+                          fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                          background: uniqueReceipts > 1 ? '#4A90D922' : '#33333366',
+                          color: uniqueReceipts > 1 ? '#4A90D9' : '#888',
+                          fontWeight: 600, fontFamily: "'Space Mono', monospace", whiteSpace: 'nowrap',
+                        }}>
+                          {uniqueReceipts > 1 ? `🔄 ${uniqueReceipts}` : `×${purchaseCount}`}
+                        </span>
+                      )}
+                      {m.materialId && (
+                        <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#1a1a1a', color: '#666', fontFamily: "'Space Mono', monospace" }}>{m.materialId}</span>
+                      )}
+                    </div>
+                    {m.altNames.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#555', marginTop: 2, paddingLeft: 20 }}>
+                        Also: {m.altNames.join(', ')}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#eee', fontFamily: "'Space Mono', monospace", fontSize: 13 }}>{fmt(m.lastPrice)}</td>
+                  <td style={{ padding: '12px 14px', color: '#aaa', fontFamily: "'Space Mono', monospace", fontSize: 13 }}>{fmt(m.avgPrice)}</td>
+                  <td style={{ padding: '12px 14px', fontFamily: "'Space Mono', monospace", fontSize: 13, color: m.change > 0 ? '#E8654A' : m.change < 0 ? '#5EBB6E' : '#888' }}>{m.change > 0 ? "▲" : m.change < 0 ? "▼" : "—"} {Math.abs(m.change).toFixed(1)}%</td>
+                  <td style={{ padding: '12px 14px' }}><Sparkline points={m.priceHistory} color={m.change >= 0 ? '#E8654A' : '#5EBB6E'} /></td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {m.storeComparison.map(s => <StoreLogo key={s.store} store={s.store} size={22} />)}
+                    </div>
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#aaa', fontFamily: "'Space Mono', monospace", fontSize: 13 }}>{m.totalQty}</td>
+                </tr>
+
+                {/* Inline Detail Dropdown */}
+                {isOpen && (
+                  <tr><td colSpan={7} style={{ padding: 0, borderBottom: '1px solid #1e1e1e' }}>
+                    <div style={{ background: '#111', padding: '20px 24px', borderTop: '1px solid #E8654A33', animation: 'fadeIn 0.25s ease' }}>
+
+                      {/* Stats row */}
+                      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                        {[
+                          ["Last Price", fmt(m.lastPrice), '#eee'],
+                          ["Average", fmt(m.avgPrice), '#4A90D9'],
+                          ["Lowest", fmt(m.minPrice), '#5EBB6E'],
+                          ["Highest", fmt(m.maxPrice), '#E8654A'],
+                          ["Purchases", `${purchaseCount}`, uniqueReceipts > 1 ? '#9B6EC6' : '#888'],
+                        ].map(([label, val, color]) => (
+                          <div key={label} style={{ padding: '10px 14px', background: '#1a1a1a', borderRadius: 10, border: '1px solid #222', flex: '1 1 80px', minWidth: 80 }}>
+                            <div style={{ fontSize: 9, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>{label}</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color, fontFamily: "'Space Mono', monospace" }}>{val}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Two column layout: chart + store comparison */}
+                      <div style={{ display: 'grid', gridTemplateColumns: m.storeComparison.length > 1 ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+                        {/* Price Chart */}
+                        <div style={{ background: '#1a1a1a', borderRadius: 12, border: '1px solid #222', padding: '16px 14px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Price History</div>
+                          <PriceChart purchases={m.purchases} />
+                        </div>
+
+                        {/* Store Comparison */}
+                        {m.storeComparison.length > 1 && (
+                          <div style={{ background: '#1a1a1a', borderRadius: 12, border: '1px solid #222', padding: '16px 14px' }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Store Comparison</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {m.storeComparison.map((s, i) => {
+                                const cheapest = i === 0;
+                                const diff = i > 0 ? s.avgPrice - m.storeComparison[0].avgPrice : 0;
+                                const pctDiff = i > 0 ? (diff / m.storeComparison[0].avgPrice * 100) : 0;
+                                return (
+                                  <div key={s.store} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: cheapest ? 'rgba(94,187,110,0.06)' : 'transparent', borderRadius: 8, border: cheapest ? '1px solid rgba(94,187,110,0.15)' : '1px solid transparent' }}>
+                                    <StoreLogo store={s.store} size={26} />
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 600, color: '#ddd', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {s.store}
+                                        {cheapest && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: '#5EBB6E22', color: '#5EBB6E', fontWeight: 600 }}>BEST</span>}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#888' }}>{s.count} buy{s.count !== 1 ? 's' : ''} · {s.totalQty} units</div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: cheapest ? '#5EBB6E' : '#eee' }}>{fmt(s.avgPrice)}</div>
+                                      {i > 0 && <div style={{ fontSize: 10, color: '#E8654A', fontFamily: "'Space Mono', monospace" }}>+{pctDiff.toFixed(1)}%</div>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Purchase History with Receipt Links */}
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                          All Purchases
+                          {uniqueReceipts > 1 && <span style={{ color: '#4A90D9', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>across {uniqueReceipts} different receipts</span>}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {m.purchases.map((p, i) => {
+                            const receipt = findReceipt(p);
+                            // Check if this purchase shares a receipt with another purchase of the same item
+                            const sameReceiptCount = m.purchases.filter(pp => pp.receiptId === p.receiptId).length;
+                            return (
+                              <div key={i} style={{
+                                display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
+                                background: '#151515', borderRadius: 8, border: '1px solid #222',
+                                cursor: receipt ? 'pointer' : 'default', transition: 'all 0.15s',
+                              }}
+                                onClick={(e) => { e.stopPropagation(); if (receipt && onViewReceipt) onViewReceipt(receipt); }}
+                                onMouseEnter={e => { if (receipt) { e.currentTarget.style.borderColor = '#E8654A44'; e.currentTarget.style.background = '#1a1a1a'; } }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#151515'; }}
+                              >
+                                <StoreLogo store={p.store} size={24} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    {p.store}
+                                    {p.po && <span style={{ fontSize: 10, color: '#777', background: '#1e1e1e', padding: '1px 5px', borderRadius: 4 }}>{p.po}</span>}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#888' }}>{fmtDate(p.date)}</div>
+                                </div>
+                                <div style={{ fontSize: 12, color: '#aaa', fontFamily: "'Space Mono', monospace", whiteSpace: 'nowrap' }}>{p.qty} × {fmt(p.price)}</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#eee', fontFamily: "'Space Mono', monospace", minWidth: 65, textAlign: 'right' }}>{fmt(p.qty * p.price)}</div>
+                                {receipt && <div style={{ fontSize: 10, color: '#E8654A', flexShrink: 0 }}>view →</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </td></tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </div>);
+}
+
+// ─── SVG Pie Chart ───
+function PieChart({ data, size = 200 }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
+  const cx = size / 2, cy = size / 2, r = size * 0.38;
+  let cumAngle = -Math.PI / 2;
+  const slices = data.map((d, i) => {
+    const angle = (d.value / total) * Math.PI * 2;
+    const startX = cx + r * Math.cos(cumAngle);
+    const startY = cy + r * Math.sin(cumAngle);
+    cumAngle += angle;
+    const endX = cx + r * Math.cos(cumAngle);
+    const endY = cy + r * Math.sin(cumAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    const path = `M${cx},${cy} L${startX},${startY} A${r},${r} 0 ${large} 1 ${endX},${endY} Z`;
+    return { ...d, path, color: COLORS[i % COLORS.length], pct: ((d.value / total) * 100).toFixed(1) };
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} stroke="#0e0e0e" strokeWidth="2" />)}
+        <circle cx={cx} cy={cy} r={r * 0.5} fill="#0e0e0e" />
+        <text x={cx} y={cy - 6} textAnchor="middle" fill="#eee" fontSize="18" fontWeight="700" fontFamily="Space Mono, monospace">{fmt(total)}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill="#888" fontSize="10" fontFamily="DM Sans, sans-serif">TOTAL</text>
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 150 }}>
+        {slices.map((s, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+            <span style={{ color: '#ccc', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            <span style={{ color: '#888', fontFamily: "'Space Mono', monospace", fontSize: 11 }}>{s.pct}%</span>
+            <span style={{ color: '#aaa', fontFamily: "'Space Mono', monospace", fontSize: 11, minWidth: 65, textAlign: 'right' }}>{fmt(s.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── SVG Area Chart ───
+function AreaChart({ data, width = 560, height = 180, color = '#4A90D9', label = '' }) {
+  if (data.length < 2) return null;
+  const PAD = { t: 16, r: 16, b: 32, l: 56 };
+  const pW = width - PAD.l - PAD.r, pH = height - PAD.t - PAD.b;
+  const vals = data.map(d => d.value);
+  const minV = Math.min(...vals) * 0.9, maxV = Math.max(...vals) * 1.1;
+  const range = maxV - minV || 1;
+  const x = i => PAD.l + (i / (data.length - 1)) * pW;
+  const y = v => PAD.t + pH - ((v - minV) / range) * pH;
+  const linePath = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(d.value)}`).join(' ');
+  const areaPath = linePath + ` L${x(data.length - 1)},${PAD.t + pH} L${PAD.l},${PAD.t + pH} Z`;
+  const gridCount = 4;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto' }}>
+      <defs><linearGradient id={`ag-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.25" /><stop offset="100%" stopColor={color} stopOpacity="0.02" /></linearGradient></defs>
+      {Array.from({ length: gridCount + 1 }, (_, i) => minV + (range / gridCount) * i).map((v, i) => (
+        <g key={i}><line x1={PAD.l} y1={y(v)} x2={width - PAD.r} y2={y(v)} stroke="#222" strokeWidth="1" />
+          <text x={PAD.l - 6} y={y(v) + 4} textAnchor="end" fill="#666" fontSize="9" fontFamily="Space Mono, monospace">{v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`}</text></g>
+      ))}
+      <path d={areaPath} fill={`url(#ag-${color.replace('#','')})`} />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {data.map((d, i) => <circle key={i} cx={x(i)} cy={y(d.value)} r="3.5" fill={color} stroke="#0e0e0e" strokeWidth="2" />)}
+      {data.length <= 14 && data.map((d, i) => <text key={`l${i}`} x={x(i)} y={height - 8} textAnchor="middle" fill="#666" fontSize="8" fontFamily="DM Sans, sans-serif">{d.label}</text>)}
+      {label && <text x={PAD.l} y={12} fill="#888" fontSize="10" fontFamily="DM Sans, sans-serif">{label}</text>}
+    </svg>
+  );
+}
+
+// ─── Search Panel ───
+function SearchPanel({ receipts, onViewReceipt }) {
+  const [query, setQuery] = useState("");
+  const results = useMemo(() => {
+    if (!query || query.length < 2) return [];
+    const q = query.toLowerCase();
+    const matches = [];
+    receipts.forEach(r => {
+      r.items.forEach(it => {
+        if (it.name.toLowerCase().includes(q) || (it.materialId || "").toLowerCase().includes(q) || (it.sku || "").toLowerCase().includes(q)) {
+          matches.push({ receipt: r, item: it });
+        }
+      });
+      // Also match store, PO
+      if (r.store.toLowerCase().includes(q) || (r.po || "").toLowerCase().includes(q)) {
+        if (!matches.some(m => m.receipt.id === r.id)) matches.push({ receipt: r, item: null });
+      }
+    });
+    return matches.slice(0, 50);
+  }, [query, receipts]);
+
+  const itemResults = results.filter(r => r.item);
+  const receiptResults = results.filter(r => !r.item);
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <div style={{ marginBottom: 20 }}><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Search Receipts</div><div style={{ fontSize: 13, color: '#666' }}>Find any item, store, PO, or SKU across all your receipts</div></div>
+      <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for 2x4, diesel, Titebond, LINS 87719..." autoFocus
+        style={{ width: '100%', padding: '14px 18px', borderRadius: 12, border: '1px solid #2a2a2a', background: '#151515', color: '#eee', fontSize: 16, fontFamily: "'DM Sans', sans-serif", marginBottom: 20, outline: 'none', boxSizing: 'border-box' }} />
+      {query.length >= 2 && (
+        <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+          {results.length === 0 ? 'No results found' : `${itemResults.length} item match${itemResults.length !== 1 ? 'es' : ''}${receiptResults.length > 0 ? `, ${receiptResults.length} receipt match${receiptResults.length !== 1 ? 'es' : ''}` : ''}`}
+        </div>
+      )}
+      {itemResults.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Item Matches</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {itemResults.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#151515', borderRadius: 10, border: '1px solid #222', cursor: 'pointer', transition: 'all 0.15s' }}
+                onClick={() => onViewReceipt(m.receipt)}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#E8654A44'; e.currentTarget.style.background = '#1a1a1a'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#151515'; }}>
+                <StoreLogo store={m.receipt.store} size={28} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#ddd' }}>{m.item.name}</div>
+                  <div style={{ fontSize: 11, color: '#888' }}>{m.receipt.store} · {fmtDate(m.receipt.date)}{m.receipt.po ? ` · ${m.receipt.po}` : ''}{m.item.sku ? ` · SKU: ${m.item.sku}` : ''}</div>
+                </div>
+                <div style={{ fontSize: 12, color: '#aaa', fontFamily: "'Space Mono', monospace", whiteSpace: 'nowrap' }}>{m.item.qty} × {fmt(m.item.unitPrice)}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#eee', minWidth: 65, textAlign: 'right' }}>{fmt(m.item.total)}</div>
+                <span style={{ fontSize: 10, color: '#E8654A' }}>view →</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {receiptResults.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Receipt Matches</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {receiptResults.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#151515', borderRadius: 10, border: '1px solid #222', cursor: 'pointer', transition: 'all 0.15s' }}
+                onClick={() => onViewReceipt(m.receipt)}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#E8654A44'; e.currentTarget.style.background = '#1a1a1a'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#151515'; }}>
+                <StoreLogo store={m.receipt.store} size={28} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#ddd' }}>{m.receipt.store}</div>
+                  <div style={{ fontSize: 11, color: '#888' }}>{fmtDate(m.receipt.date)}{m.receipt.po ? ` · ${m.receipt.po}` : ''} · {m.receipt.items.length} items</div>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#E8654A' }}>{fmt(m.receipt.total)}</div>
+                <span style={{ fontSize: 10, color: '#E8654A' }}>view →</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {query.length < 2 && receipts.length > 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: '#555' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 14, color: '#888' }}>Type at least 2 characters to search across {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Jobs / Job Costing Panel ───
+function JobsPanel({ receipts, onViewReceipt }) {
+  const [selectedJob, setSelectedJob] = useState(null);
+
+  const jobs = useMemo(() => {
+    const map = {};
+    receipts.forEach(r => {
+      const jobName = r.po || "Unassigned";
+      if (!map[jobName]) map[jobName] = { name: jobName, receipts: [], totalSpend: 0, stores: new Set(), materials: {}, dates: [] };
+      map[jobName].receipts.push(r);
+      map[jobName].totalSpend += r.total;
+      map[jobName].stores.add(r.store);
+      map[jobName].dates.push(r.date);
+      r.items.forEach(it => {
+        const key = it.materialId || it.name;
+        if (!map[jobName].materials[key]) map[jobName].materials[key] = { name: it.name, qty: 0, spend: 0 };
+        map[jobName].materials[key].qty += it.qty;
+        map[jobName].materials[key].spend += it.total;
+      });
+    });
+    return Object.values(map).map(j => ({
+      ...j,
+      stores: [...j.stores],
+      dates: j.dates.sort(),
+      materialsList: Object.values(j.materials).sort((a, b) => b.spend - a.spend),
+      receiptCount: j.receipts.length,
+    })).sort((a, b) => b.totalSpend - a.totalSpend);
+  }, [receipts]);
+
+  const sel = jobs.find(j => j.name === selectedJob);
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <div style={{ marginBottom: 20 }}><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Job Costing</div><div style={{ fontSize: 13, color: '#666' }}>Track spending by PO number / job name — see total cost, materials, and receipts per job</div></div>
+      {jobs.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>Upload receipts to see job costs</div>
+      ) : (
+        <div style={{ display: 'flex', gap: 20 }}>
+          {/* Job list */}
+          <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{jobs.length} Job{jobs.length !== 1 ? 's' : ''}</div>
+            {jobs.map(j => (
+              <div key={j.name} onClick={() => setSelectedJob(selectedJob === j.name ? null : j.name)}
+                style={{
+                  padding: '12px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                  background: selectedJob === j.name ? 'rgba(232,101,74,0.08)' : '#151515',
+                  border: selectedJob === j.name ? '1px solid #E8654A44' : '1px solid #222',
+                }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: selectedJob === j.name ? '#E8654A' : '#ddd' }}>{j.name}</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#E8654A' }}>{fmt(j.totalSpend)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#888', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>{j.receiptCount} receipt{j.receiptCount !== 1 ? 's' : ''}</span>
+                  <span>·</span>
+                  <span>{j.materialsList.length} material{j.materialsList.length !== 1 ? 's' : ''}</span>
+                  <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>{j.stores.slice(0, 3).map(s => <StoreLogo key={s} store={s} size={18} />)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Job detail */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {!sel ? (
+              <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
+                <div style={{ fontSize: 14, color: '#888' }}>Select a job to view cost breakdown</div>
+              </div>
+            ) : (
+              <div style={{ animation: 'fadeIn 0.25s ease' }}>
+                {/* Job header */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 20, marginBottom: 16 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#eee', marginBottom: 6 }}>{sel.name}</div>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#888', flexWrap: 'wrap', marginBottom: 14 }}>
+                    <span>{sel.receiptCount} receipts</span>
+                    <span>·</span>
+                    <span>{sel.materialsList.length} unique materials</span>
+                    <span>·</span>
+                    <span>{sel.dates.length > 0 ? `${fmtDate(sel.dates[0])} – ${fmtDate(sel.dates[sel.dates.length - 1])}` : '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {[["Total Cost", fmt(sel.totalSpend), "#E8654A"], ["Receipts", sel.receiptCount, "#4A90D9"], ["Materials", sel.materialsList.length, "#5EBB6E"], ["Stores", sel.stores.length, "#D4A843"]].map(([l, v, c]) => (
+                      <div key={l} style={{ padding: '10px 14px', background: '#151515', borderRadius: 10, border: '1px solid #222', flex: '1 1 90px' }}>
+                        <div style={{ fontSize: 9, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>{l}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: c, fontFamily: "'Space Mono', monospace" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Cost breakdown pie */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                  <div style={{ background: '#151515', borderRadius: 12, border: '1px solid #222', padding: 20 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Cost by Store</div>
+                    <PieChart data={(() => { const m = {}; sel.receipts.forEach(r => { m[r.store] = (m[r.store] || 0) + r.total; }); return Object.entries(m).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value); })()} size={180} />
+                  </div>
+                  <div style={{ background: '#151515', borderRadius: 12, border: '1px solid #222', padding: 20 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Top Materials by Cost</div>
+                    <PieChart data={sel.materialsList.slice(0, 8).map(m => ({ label: m.name, value: m.spend }))} size={180} />
+                  </div>
+                </div>
+
+                {/* Materials list */}
+                <div style={{ background: '#151515', borderRadius: 12, border: '1px solid #222', padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>All Materials ({sel.materialsList.length})</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 250, overflowY: 'auto' }}>
+                    {sel.materialsList.map((m, i) => (
+                      <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 6, background: i % 2 === 0 ? '#1a1a1a' : 'transparent' }}>
+                        <span style={{ fontSize: 12, color: '#ccc', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                        <span style={{ fontSize: 11, color: '#888', fontFamily: "'Space Mono', monospace" }}>{m.qty} units</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#eee', fontFamily: "'Space Mono', monospace", minWidth: 70, textAlign: 'right' }}>{fmt(m.spend)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Receipts */}
+                <div style={{ background: '#151515', borderRadius: 12, border: '1px solid #222', padding: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Receipts</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {sel.receipts.sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', border: '1px solid transparent' }}
+                        onClick={() => onViewReceipt(r)}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#1e1e1e'; e.currentTarget.style.borderColor = '#E8654A33'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                        <StoreLogo store={r.store} size={24} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#ccc' }}>{r.store} · {fmtDate(r.date)}</div>
+                          <div style={{ fontSize: 11, color: '#666' }}>{r.items.length} items</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: r.type === 'refund' ? '#5EBB6E' : '#ddd' }}>{fmt(r.total)}</div>
+                        <span style={{ fontSize: 10, color: '#555' }}>view →</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reports Panel (Business Meeting Style) ───
+function ReportsPanel({ receipts, stores }) {
+  const [period, setPeriod] = useState("all");
+  const reportRef = useRef();
+
+  const handlePrint = () => {
+    // Inject print styles, trigger print, then clean up
+    const styleId = 'receipt-vault-print-styles';
+    if (document.getElementById(styleId)) document.getElementById(styleId).remove();
+    
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      @media print {
+        @page { margin: 0.5in; size: letter; }
+        body, html { background: #fff !important; }
+        body > * { display: none !important; }
+        body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        
+        #printable-report, #printable-report * { visibility: visible !important; }
+        #printable-report {
+          display: block !important; position: fixed !important;
+          left: 0; top: 0; width: 100%; padding: 0.25in;
+          background: #fff !important; color: #222 !important;
+          font-family: 'DM Sans', sans-serif !important;
+          z-index: 999999;
+        }
+        #printable-report .print-only { display: block !important; }
+        #printable-report .no-print { display: none !important; }
+        
+        /* Fix dark theme colors for paper */
+        #printable-report [style*="color: rgb(238"] { color: #222 !important; }
+        #printable-report [style*="color: rgb(221"] { color: #333 !important; }
+        #printable-report [style*="color: rgb(204"] { color: #444 !important; }
+        #printable-report [style*="color: rgb(170"] { color: #555 !important; }
+        #printable-report [style*="color: rgb(136"] { color: #666 !important; }
+        #printable-report [style*="color: rgb(102"] { color: #888 !important; }
+        
+        /* SVG charts need exact colors preserved */
+        #printable-report svg { print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+        #printable-report svg text { fill: #333 !important; }
+        #printable-report svg line { stroke: #ccc !important; }
+        #printable-report svg circle[stroke="#0e0e0e"] { stroke: #fff !important; }
+        
+        /* Card backgrounds for print */
+        #printable-report div { border-color: #ddd !important; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Small delay to let styles apply
+    requestAnimationFrame(() => {
+      window.print();
+      // Clean up after print dialog closes
+      setTimeout(() => {
+        const el = document.getElementById(styleId);
+        if (el) el.remove();
+      }, 1000);
+    });
+  };
+
+  const filteredReceipts = useMemo(() => {
+    if (period === "all") return receipts;
+    const now = new Date();
+    const cutoff = new Date();
+    if (period === "30d") cutoff.setDate(now.getDate() - 30);
+    else if (period === "90d") cutoff.setDate(now.getDate() - 90);
+    else if (period === "ytd") { cutoff.setMonth(0); cutoff.setDate(1); }
+    const cutStr = cutoff.toISOString().split("T")[0];
+    return receipts.filter(r => r.date >= cutStr);
+  }, [receipts, period]);
+
+  const totalSpend = filteredReceipts.reduce((s, r) => s + r.total, 0);
+  const refunds = filteredReceipts.filter(r => r.type === 'refund');
+  const refundTotal = Math.abs(refunds.reduce((s, r) => s + r.total, 0));
+  const netSpend = totalSpend + refundTotal; // refunds are already negative in total
+
+  // Monthly trend
+  const monthly = useMemo(() => {
+    const map = {};
+    filteredReceipts.forEach(r => { const key = r.date.slice(0, 7); map[key] = (map[key] || 0) + r.total; });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({ label: k.slice(2), value: v }));
+  }, [filteredReceipts]);
+
+  // Store breakdown
+  const storeBreakdown = useMemo(() => {
+    const map = {};
+    filteredReceipts.forEach(r => { map[r.store] = (map[r.store] || 0) + r.total; });
+    return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  }, [filteredReceipts]);
+
+  // Category breakdown (by receipt type)
+  const typeBreakdown = useMemo(() => {
+    const map = {};
+    filteredReceipts.forEach(r => {
+      const t = r.type === 'sale' ? 'Materials & Supplies' : r.type === 'fuel' ? 'Fuel' : r.type === 'food' ? 'Food & Drinks' : r.type === 'refund' ? 'Refunds' : 'Other';
+      map[t] = (map[t] || 0) + Math.abs(r.total);
+    });
+    return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  }, [filteredReceipts]);
+
+  // Job breakdown
+  const jobBreakdown = useMemo(() => {
+    const map = {};
+    filteredReceipts.forEach(r => { const j = r.po || 'Unassigned'; map[j] = (map[j] || 0) + r.total; });
+    return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 10);
+  }, [filteredReceipts]);
+
+  // Top materials
+  const topMaterials = useMemo(() => {
+    const map = {};
+    filteredReceipts.forEach(r => r.items.forEach(it => {
+      const key = it.materialId || it.name;
+      if (!map[key]) map[key] = { name: it.name, spend: 0, qty: 0 };
+      map[key].spend += it.total; map[key].qty += it.qty;
+    }));
+    return Object.values(map).sort((a, b) => b.spend - a.spend).slice(0, 10);
+  }, [filteredReceipts]);
+
+  const periodBtn = (v, label) => <button onClick={() => setPeriod(v)} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 12, background: period === v ? '#E8654A' : 'transparent', color: period === v ? '#fff' : '#888' }}>{label}</button>;
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <div><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Spending Reports</div><div style={{ fontSize: 13, color: '#666' }}>Business overview with charts and breakdowns</div></div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, background: '#1a1a1a', borderRadius: 10, padding: 4 }}>
+            {periodBtn("30d", "30 Days")}{periodBtn("90d", "90 Days")}{periodBtn("ytd", "YTD")}{periodBtn("all", "All Time")}
+          </div>
+          <button onClick={handlePrint} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#1a1a1a', color: '#aaa', cursor: 'pointer', fontSize: 13, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+            🖨️ Print Report
+          </button>
+        </div>
+      </div>
+
+      <div ref={reportRef} id="printable-report">
+        {/* Print header - only visible when printing */}
+        <div className="print-only" style={{ display: 'none' }}>
+          <div style={{ textAlign: 'center', marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #333' }}>
+            <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Ebbers Construction LLC</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Spending Report</div>
+            <div style={{ fontSize: 12, color: '#888' }}>
+              Period: {period === '30d' ? 'Last 30 Days' : period === '90d' ? 'Last 90 Days' : period === 'ytd' ? 'Year to Date' : 'All Time'}
+              {' · '}Generated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </div>
+          </div>
+        </div>
+
+      {filteredReceipts.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>No data for this period</div>
+      ) : (<>
+        {/* KPI row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+          {[
+            ["Total Spend", fmt(totalSpend), "#E8654A"],
+            ["Receipts", filteredReceipts.length, "#4A90D9"],
+            ["Avg / Receipt", fmt(filteredReceipts.length ? totalSpend / filteredReceipts.length : 0), "#5EBB6E"],
+            ["Stores Used", storeBreakdown.length, "#D4A843"],
+            ["Refunds", fmt(refundTotal), "#9B6EC6"],
+          ].map(([l, v, c]) => (
+            <div key={l} style={{ padding: '14px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 12 }}>
+              <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{l}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: c, fontFamily: "'Space Mono', monospace" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Monthly trend chart */}
+        {monthly.length >= 2 && (
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Monthly Spending Trend</div>
+            <AreaChart data={monthly} color="#4A90D9" />
+          </div>
+        )}
+
+        {/* Pie charts row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, marginBottom: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Spend by Store</div>
+            <PieChart data={storeBreakdown.slice(0, 8)} size={170} />
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Spend by Category</div>
+            <PieChart data={typeBreakdown} size={170} />
+          </div>
+        </div>
+
+        {/* Job costs + Top materials */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, marginBottom: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Spend by Job / PO</div>
+            <BarChart data={jobBreakdown} />
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Top 10 Materials by Spend</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {topMaterials.map((m, i) => {
+                const max = topMaterials[0]?.spend || 1;
+                return (
+                  <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 18, fontSize: 11, color: '#666', textAlign: 'right', fontFamily: "'Space Mono', monospace" }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{m.name}</div>
+                      <div style={{ height: 6, background: '#1a1a1a', borderRadius: 3 }}><div style={{ width: `${(m.spend / max) * 100}%`, height: '100%', background: COLORS[i % COLORS.length], borderRadius: 3, minWidth: 2 }} /></div>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#eee', minWidth: 70, textAlign: 'right' }}>{fmt(m.spend)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </>)}
+      </div>
+    </div>
+  );
+}
+
+function StoreCard({ sd, customLogos, storeProfiles, setStoreProfiles, setViewReceipt }) {
+  const [expanded, setExpanded] = useState(false);
+  const logoInputRef = useRef();
+  const profileKey = sd.name.toLowerCase().trim();
+  const prof = sd.profile;
+
+  const updateProfile = (field, value) => {
+    setStoreProfiles(prev => ({ ...prev, [profileKey]: { ...(prev[profileKey] || {}), [field]: value } }));
+  };
+
+  const [logoWarning, setLogoWarning] = useState("");
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoWarning("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      // Load into an image to check dimensions and upscale if needed
+      const img = new Image();
+      img.onload = () => {
+        const TARGET = 256; // target size for crisp display
+        if (img.naturalWidth < 64 || img.naturalHeight < 64) {
+          setLogoWarning(`Image is only ${img.naturalWidth}×${img.naturalHeight}px. For best quality, use a PNG at least 128×128px. Try searching "${sd.name} logo png" for a higher-res version.`);
+        }
+        // Upscale small images to TARGET size using canvas for sharper rendering
+        if (img.naturalWidth < TARGET || img.naturalHeight < TARGET) {
+          const canvas = document.createElement('canvas');
+          canvas.width = TARGET;
+          canvas.height = TARGET;
+          const ctx = canvas.getContext('2d');
+          // Transparent background (no white fill)
+          ctx.clearRect(0, 0, TARGET, TARGET);
+          // Center the image with padding
+          const scale = Math.min((TARGET * 0.9) / img.naturalWidth, (TARGET * 0.9) / img.naturalHeight);
+          const w = img.naturalWidth * scale;
+          const h = img.naturalHeight * scale;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, (TARGET - w) / 2, (TARGET - h) / 2, w, h);
+          updateProfile('logo', canvas.toDataURL('image/png'));
+        } else {
+          updateProfile('logo', dataUrl);
+        }
+      };
+      img.onerror = () => updateProfile('logo', dataUrl);
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #222', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
+        onClick={() => setExpanded(!expanded)}>
+        <StoreLogo store={sd.name} size={48} customLogos={customLogos} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#eee', marginBottom: 3 }}>{sd.name}</div>
+          <div style={{ fontSize: 12, color: '#888', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <span>{sd.receiptCount} receipt{sd.receiptCount !== 1 ? 's' : ''}</span>
+            {sd.dates.length > 0 && <span>· {fmtDate(sd.dates[0])} – {fmtDate(sd.dates[sd.dates.length - 1])}</span>}
+            {prof.phone && <span>· {prof.phone}</span>}
+            {prof.accountNum && <span>· Acct: {prof.accountNum}</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#E8654A', flexShrink: 0 }}>{fmt(sd.totalSpend)}</div>
+        <span style={{ fontSize: 12, color: '#555', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▶</span>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop: '1px solid #1e1e1e', padding: '20px 22px', animation: 'fadeIn 0.25s ease' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+            <div style={{ background: '#151515', borderRadius: 12, border: '1px solid #222', padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <StoreLogo store={sd.name} size={80} customLogos={customLogos} />
+              <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon,image/ico,.ico,.png,.jpg,.svg" style={{ display: 'none' }} onChange={handleLogoUpload} />
+              <button onClick={(e) => { e.stopPropagation(); logoInputRef.current?.click(); }} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #333', background: '#1a1a1a', color: '#aaa', cursor: 'pointer', fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>
+                {prof.logo ? 'Change Logo' : 'Upload Logo'}
+              </button>
+              {prof.logo && <button onClick={(e) => { e.stopPropagation(); updateProfile('logo', ''); setLogoWarning(''); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 11 }}>Remove custom logo</button>}
+              {logoWarning && <div style={{ fontSize: 11, color: '#D4A843', textAlign: 'center', lineHeight: 1.4, maxWidth: 220 }}>{logoWarning}</div>}
+              <div style={{ fontSize: 10, color: '#555', textAlign: 'center' }}>PNG or JPG, 128×128px+ recommended</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[['phone','Phone','e.g. (402) 555-1234'],['website','Website','e.g. menards.com'],['address','Address','e.g. 8900 Andermatt Dr, Lincoln NE'],['accountNum','Account #','e.g. PRO-12345'],['contactName','Contact','e.g. John in Lumber']].map(([field, label, placeholder]) => (
+                <div key={field}>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>{label}</div>
+                  <input value={prof[field] || ''} onChange={e => updateProfile(field, e.target.value)} placeholder={placeholder}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #2a2a2a', background: '#1a1a1a', color: '#ddd', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+              ))}
+              <div>
+                <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Notes</div>
+                <textarea value={prof.notes || ''} onChange={e => updateProfile('notes', e.target.value)} placeholder="Any notes about this vendor..." rows={3}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #2a2a2a', background: '#1a1a1a', color: '#ddd', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
+              </div>
+            </div>
+          </div>
+
+          {sd.topItems.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Top Items from {sd.name}</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {sd.topItems.map((it, i) => (
+                  <div key={it.name} style={{ padding: '8px 12px', background: '#151515', borderRadius: 8, border: '1px solid #222', flex: '1 1 160px', minWidth: 140 }}>
+                    <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                      <span style={{ color: '#888' }}>{it.qty} units</span>
+                      <span style={{ color: COLORS[i % COLORS.length], fontFamily: "'Space Mono', monospace", fontWeight: 700 }}>{fmt(it.spend)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Recent Receipts ({sd.receiptCount})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 300, overflowY: 'auto' }}>
+              {sd.receipts.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: '#151515', borderRadius: 8, border: '1px solid #222', cursor: 'pointer', transition: 'all 0.15s' }}
+                  onClick={e => { e.stopPropagation(); setViewReceipt(r); }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#E8654A44'; e.currentTarget.style.background = '#1a1a1a'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#151515'; }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, color: '#ccc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {fmtDate(r.date)}
+                      {r.po && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#252525', color: '#aaa' }}>{r.po}</span>}
+                      {r.type === 'refund' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#E8654A22', color: '#E8654A' }}>REFUND</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666' }}>{r.items.length} item{r.items.length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: r.type === 'refund' ? '#5EBB6E' : '#ddd' }}>{fmt(r.total)}</div>
+                  <span style={{ fontSize: 10, color: '#555' }}>view →</span>
+                </div>
+              ))}
+              {sd.receiptCount > 20 && <div style={{ fontSize: 11, color: '#555', textAlign: 'center', padding: 8 }}>Showing 20 of {sd.receiptCount} receipts</div>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Auto-generate materialId from item name for legacy receipts ───
+function normalizeMaterialId(name) {
+  if (!name) return "";
+  let n = name.toLowerCase().trim();
+  
+  // Fuel
+  if (/diesel|#2\s*fuel|no\.?\s*2\s*fuel/i.test(name)) return "diesel-2";
+  if (/unleaded|regular\s*(gas|fuel)|gasoline.*regular/i.test(name)) return "gasoline-regular";
+  if (/premium\s*(gas|fuel)|gasoline.*premium/i.test(name)) return "gasoline-premium";
+  if (/midgrade|plus\s*(gas|fuel)|mid.?grade/i.test(name) || /^plus$/i.test(name.trim())) return "gasoline-midgrade";
+  
+  // Lumber patterns: "2x4x8'" or "2 x 4 x 8"
+  const lumberMatch = n.match(/(\d+)\s*x\s*(\d+)\s*[x-]\s*(\d+)['\s]*/);
+  if (lumberMatch) {
+    const [, a, b, c] = lumberMatch;
+    const suffix = /treat|ac2|green|ground.?contact|pt\b/i.test(name) ? "-treated" 
+      : /fir\b/i.test(name) ? "-fir"
+      : /lvl/i.test(name) ? ""
+      : "-spf";
+    return `${a}x${b}-${c}ft${suffix}`;
+  }
+  
+  // LVL beams
+  if (/lvl/i.test(name)) {
+    const lvlMatch = n.match(/([\d.\/]+)["\s]*x\s*([\d.\/]+)["\s]*x?\s*(\d+)/);
+    if (lvlMatch) return `lvl-${lvlMatch[1].replace(/\//g,'.')}x${lvlMatch[2].replace(/\//g,'.')}-${lvlMatch[3]}ft`;
+    return "lvl-beam";
+  }
+
+  // Common building materials
+  if (/housewrap|house\s*wrap/i.test(name)) {
+    const sizeMatch = n.match(/(\d+)['\s]*x\s*(\d+)/);
+    return sizeMatch ? `housewrap-${sizeMatch[1]}x${sizeMatch[2]}` : "housewrap";
+  }
+  if (/seam\s*tape/i.test(name)) {
+    const ydMatch = n.match(/(\d+)\s*y/i);
+    const ftMatch = n.match(/(\d+)['\s]*(?:ft|foot|feet)/i);
+    if (ydMatch) return `seam-tape-${ydMatch[1]}yd`;
+    if (ftMatch) return `seam-tape-${ftMatch[1]}ft`;
+    return "seam-tape";
+  }
+  if (/titebond/i.test(name)) {
+    const galMatch = n.match(/(\d+)\s*gal/i);
+    return `titebond-iii-${galMatch ? galMatch[1] : '1'}gal`;
+  }
+  if (/pole\s*barn\s*nail|polebarn/i.test(name)) {
+    const lbMatch = n.match(/(\d+)\s*lb/i);
+    return `polebarn-nail-30d-${lbMatch ? lbMatch[1] : '5'}lb`;
+  }
+  
+  // Fallback: slugify the name
+  return n.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+}
+
+function migrateReceipts(receipts) {
+  let changed = false;
+  const migrated = receipts.map(r => {
+    const items = r.items.map(it => {
+      if (it.materialId) return it;
+      changed = true;
+      return { ...it, materialId: normalizeMaterialId(it.name) };
+    });
+    return changed ? { ...r, items } : r;
+  });
+  return { receipts: migrated, changed };
+}
+
+function ReceiptManager() {
+  const [receipts, setReceiptsRaw] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("upload");
+  const [viewReceipt, setViewReceipt] = useState(null);
+  const [filterStore, setFilterStore] = useState("all");
+  const [filterPO, setFilterPO] = useState("all");
+  const [filterMaterial, setFilterMaterial] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [dashView, setDashView] = useState("store");
+  const [storeProfiles, setStoreProfilesRaw] = useState({}); // { "store name": { logo, phone, address, accountNum, notes, website } }
+
+  // Persist receipts to storage
+  const setReceipts = useCallback((valOrFn) => {
+    setReceiptsRaw(prev => {
+      const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn;
+      (async () => {
+        try { localStorage.setItem('receipt-vault-data', JSON.stringify(next)); }
+        catch (e) { console.error('Storage save error:', e); }
+      })();
+      return next;
+    });
+  }, []);
+
+  const setStoreProfiles = useCallback((valOrFn) => {
+    setStoreProfilesRaw(prev => {
+      const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn;
+      (async () => {
+        try { localStorage.setItem('receipt-vault-stores', JSON.stringify(next)); }
+        catch (e) { console.error('Store profiles save error:', e); }
+      })();
+      return next;
+    });
+  }, []);
+
+  // Load receipts and store profiles from storage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = { value: localStorage.getItem('receipt-vault-data') };
+        if (result && result.value) {
+          const parsed = JSON.parse(result.value);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const { receipts: migrated, changed } = migrateReceipts(parsed);
+            setReceiptsRaw(migrated);
+            if (changed) {
+              try { localStorage.setItem('receipt-vault-data', JSON.stringify(migrated)); }
+              catch (e) { console.error('Migration save error:', e); }
+            }
+            setTab("receipts");
+          }
+        }
+      } catch (e) { console.log('No saved data found, starting fresh'); }
+      try {
+        const sp = { value: localStorage.getItem('receipt-vault-stores') };
+        if (sp && sp.value) setStoreProfilesRaw(JSON.parse(sp.value));
+      } catch (e) {}
+      setLoading(false);
+    })();
+  }, []);
+
+  // ─── Upload queue (lives at app level so it persists across tabs) ───
+  const [uploadQueue, setUploadQueue] = useState([]);
+  const [uploadTotalResult, setUploadTotalResult] = useState(null);
+  const processingRef = useRef(false);
+
+  const addToQueue = useCallback((fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    const newItems = Array.from(fileList).map(file => ({ id: uid(), file, name: file.name, status: 'waiting', result: null, error: null }));
+    setUploadQueue(prev => [...prev, ...newItems]);
+    setUploadTotalResult(null);
+  }, []);
+
+  const clearUploadQueue = useCallback(() => { setUploadQueue([]); setUploadTotalResult(null); }, []);
+  const removeFromQueue = useCallback((id) => setUploadQueue(prev => prev.filter(q => q.id !== id)), []);
+
+  const dedupAndAdd = useCallback((newReceipts) => {
+    // Multi-layer duplicate detection:
+    // Layer 1: Exact match — store + date + total + item count (catches identical re-uploads)
+    // Layer 2: Fuzzy match — store + date + total within $0.50 + similar item count (catches AI variation)
+    // Layer 3: PO match — same store + same PO/order number + same date (catches picking tickets)
+    // We do NOT dedup solely on total, since two different receipts could coincidentally match
+
+    const exactFP = r => `${(r.store||'').toLowerCase().trim()}|${r.date}|${Number(r.total).toFixed(2)}|${r.items.length}`;
+    const fuzzyMatch = (a, b) => {
+      if ((a.store||'').toLowerCase().trim() !== (b.store||'').toLowerCase().trim()) return false;
+      if (a.date !== b.date) return false;
+      if (Math.abs(a.total - b.total) > 0.50) return false;
+      if (Math.abs(a.items.length - b.items.length) > 1) return false;
+      // Check if at least half the item totals match (handles AI naming variations)
+      const aTotals = a.items.map(i => Number(i.total).toFixed(2)).sort();
+      const bTotals = b.items.map(i => Number(i.total).toFixed(2)).sort();
+      let matches = 0;
+      const bUsed = new Set();
+      for (const at of aTotals) {
+        const idx = bTotals.findIndex((bt, i) => bt === at && !bUsed.has(i));
+        if (idx !== -1) { matches++; bUsed.add(idx); }
+      }
+      return matches >= Math.min(aTotals.length, bTotals.length) * 0.5;
+    };
+    const poMatch = (a, b) => {
+      if (!a.po || !b.po) return false;
+      if ((a.store||'').toLowerCase().trim() !== (b.store||'').toLowerCase().trim()) return false;
+      if (a.date !== b.date) return false;
+      return a.po.toLowerCase().trim() === b.po.toLowerCase().trim();
+    };
+
+    let added = 0, skipped = 0;
+    setReceipts(prev => {
+      const existingExactFPs = new Set(prev.map(exactFP));
+      const unique = [];
+      for (const r of newReceipts) {
+        // Layer 1: exact fingerprint
+        if (existingExactFPs.has(exactFP(r))) { skipped++; continue; }
+        // Layer 2: fuzzy match against existing
+        if (prev.some(existing => fuzzyMatch(existing, r))) { skipped++; continue; }
+        // Layer 3: PO match
+        if (r.po && prev.some(existing => poMatch(existing, r))) { skipped++; continue; }
+        // Also check against other new receipts being added in this batch
+        if (unique.some(u => exactFP(u) === exactFP(r) || fuzzyMatch(u, r) || (r.po && poMatch(u, r)))) { skipped++; continue; }
+        unique.push(r);
+        existingExactFPs.add(exactFP(r));
+      }
+      added = unique.length;
+      return unique.length > 0 ? [...unique, ...prev] : prev;
+    });
+    return { added, skipped };
+  }, [setReceipts]);
+
+  // Process queue sequentially
+  useEffect(() => {
+    if (processingRef.current) return;
+    const waiting = uploadQueue.find(q => q.status === 'waiting');
+    if (!waiting) {
+      if (uploadQueue.length > 0 && uploadQueue.every(q => q.status === 'done' || q.status === 'error')) {
+        let totalAdded = 0, totalSkipped = 0;
+        uploadQueue.forEach(q => { if (q.result) { totalAdded += q.result.added; totalSkipped += q.result.skipped; } });
+        setUploadTotalResult({ added: totalAdded, skipped: totalSkipped, files: uploadQueue.length });
+      }
+      return;
+    }
+    processingRef.current = true;
+    const itemId = waiting.id;
+    (async () => {
+      try {
+        setUploadQueue(prev => prev.map(q => q.id === itemId ? { ...q, status: 'reading' } : q));
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(",")[1]);
+          reader.onerror = () => reject(new Error("Failed to read file"));
+          reader.readAsDataURL(waiting.file);
+        });
+        setUploadQueue(prev => prev.map(q => q.id === itemId ? { ...q, status: 'parsing' } : q));
+        const parsed = await parseReceiptsWithAI(base64);
+        const newReceipts = parsed.map(r => ({
+          id: uid(), date: r.date || new Date().toISOString().split("T")[0],
+          store: r.store || "Unknown", po: r.po || "",
+          items: (r.items || []).map(it => ({ id: uid(), name: it.name || "Unknown Item", materialId: it.materialId || "", sku: it.sku || "", unit: it.unit || "ea", qty: Number(it.qty) || 1, unitPrice: Number(it.unitPrice) || 0, total: Number(it.total) || 0 })),
+          total: Number(r.total) || 0, tax: Number(r.tax) || 0, type: r.type || "sale", pageNumbers: r.pageNumbers || [], fileName: waiting.name,
+        }));
+        const dedupResult = dedupAndAdd(newReceipts);
+        setUploadQueue(prev => prev.map(q => q.id === itemId ? { ...q, status: 'done', result: { added: dedupResult.added, skipped: dedupResult.skipped } } : q));
+      } catch (err) {
+        console.error(err);
+        setUploadQueue(prev => prev.map(q => q.id === itemId ? { ...q, status: 'error', error: err.message } : q));
+      }
+      processingRef.current = false;
+    })();
+  }, [uploadQueue, dedupAndAdd]);
+
+  const uploadIsProcessing = uploadQueue.some(q => q.status === 'reading' || q.status === 'parsing');
+  const uploadActiveItem = uploadQueue.find(q => q.status === 'reading' || q.status === 'parsing');
+  const uploadDoneCount = uploadQueue.filter(q => q.status === 'done').length;
+
+  const stores = useMemo(() => [...new Set(receipts.map(r => r.store))].sort(), [receipts]);
+  const customLogos = useMemo(() => {
+    const logos = {};
+    Object.entries(storeProfiles).forEach(([k, v]) => { if (v.logo) logos[k] = v.logo; });
+    return logos;
+  }, [storeProfiles]);
+  const pos = useMemo(() => [...new Set(receipts.map(r => r.po).filter(Boolean))].sort(), [receipts]);
+  const materials = useMemo(() => { const s = new Set(); receipts.forEach(r => r.items.forEach(it => s.add(it.materialId || it.name))); return [...s].sort(); }, [receipts]);
+  const types = useMemo(() => [...new Set(receipts.map(r => r.type).filter(Boolean))], [receipts]);
+
+  const filtered = useMemo(() => receipts.filter(r => {
+    if (filterStore !== "all" && r.store !== filterStore) return false;
+    if (filterPO !== "all" && r.po !== filterPO) return false;
+    if (filterType !== "all" && r.type !== filterType) return false;
+    if (filterMaterial !== "all" && !r.items.some(it => (it.materialId || it.name) === filterMaterial)) return false;
+    if (filterDateFrom && r.date < filterDateFrom) return false;
+    if (filterDateTo && r.date > filterDateTo) return false;
+    if (searchText) { const s = searchText.toLowerCase(); return r.store.toLowerCase().includes(s) || (r.po || "").toLowerCase().includes(s) || r.items.some(it => it.name.toLowerCase().includes(s) || (it.materialId || "").toLowerCase().includes(s)); }
+    return true;
+  }), [receipts, filterStore, filterPO, filterMaterial, filterType, filterDateFrom, filterDateTo, searchText]);
+
+  const totalSpend = useMemo(() => filtered.reduce((s, r) => s + r.total, 0), [filtered]);
+  const avgPerReceipt = filtered.length ? totalSpend / filtered.length : 0;
+  const uniqueItems = useMemo(() => { const s = new Set(); filtered.forEach(r => r.items.forEach(it => s.add(it.materialId || it.name))); return s.size; }, [filtered]);
+
+  const dashData = useMemo(() => {
+    const map = {};
+    if (dashView === "store") filtered.forEach(r => { map[r.store] = (map[r.store] || 0) + r.total; });
+    else filtered.forEach(r => r.items.forEach(it => { const key = it.materialId || it.name; map[key] = (map[key] || 0) + it.total; }));
+    return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 15);
+  }, [filtered, dashView]);
+
+  const monthlyTrend = useMemo(() => {
+    const map = {}; filtered.forEach(r => { const key = r.date.slice(0, 7); map[key] = (map[key] || 0) + r.total; });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([label, value]) => ({ label: label.slice(2), value }));
+  }, [filtered]);
+
+  const clearFilters = () => { setFilterStore("all"); setFilterPO("all"); setFilterMaterial("all"); setFilterType("all"); setFilterDateFrom(""); setFilterDateTo(""); setSearchText(""); };
+  const sel = { padding: '8px 12px', borderRadius: 8, border: '1px solid #2a2a2a', background: '#151515', color: '#ccc', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none', cursor: 'pointer' };
+  const tabBtn = (t, label) => <button onClick={() => setTab(t)} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14, background: tab === t ? '#E8654A' : 'transparent', color: tab === t ? '#fff' : '#888', transition: 'all 0.2s' }}>{label}</button>;
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0e0e0e', color: '#eee', fontFamily: "'DM Sans', sans-serif", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+          @keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ width: 42, height: 42, borderRadius: 12, background: 'linear-gradient(135deg, #E8654A, #D4A843)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧾</div>
+        <div style={{ width: 36, height: 36, border: '3px solid #E8654A', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ color: '#888', fontSize: 14 }}>Loading your receipts...</div>
+      </div>
+    );
+  }
+
+  return (
+    <CustomLogosContext.Provider value={customLogos}>
+    <div style={{ minHeight: '100vh', background: '#0e0e0e', color: '#eee', fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        * { box-sizing: border-box; } ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
+        @media print {
+          body, html { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .no-print, nav, header { display: none !important; }
+          .print-only { display: block !important; }
+          #printable-report { color: #222 !important; }
+          #printable-report * { color-adjust: exact; -webkit-print-color-adjust: exact; }
+          #printable-report div[style*="background: rgba(255"] { background: #f8f8f8 !important; border-color: #ddd !important; }
+          #printable-report div[style*="background: #151515"] { background: #f0f0f0 !important; border-color: #ddd !important; }
+          #printable-report svg text { fill: #333 !important; }
+          #printable-report svg line { stroke: #ddd !important; }
+        }`}</style>
+
+      <div style={{ padding: '24px 32px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'linear-gradient(135deg, #E8654A, #D4A843)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧾</div>
+          <div><div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.5 }}>Receipt Vault</div><div style={{ fontSize: 12, color: '#666' }}>Upload · Track · Analyze</div></div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4, background: '#1a1a1a', borderRadius: 12, padding: 4 }}>
+            {tabBtn("receipts", "Receipts")}{tabBtn("pricing", "Pricing History")}{tabBtn("jobs", "Jobs")}{tabBtn("reports", "Reports")}{tabBtn("search", "Search")}{tabBtn("files", "Files")}
+            <button onClick={() => setTab("upload")} style={{
+              padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14,
+              background: tab === "upload" ? '#E8654A' : 'transparent',
+              color: tab === "upload" ? '#fff' : '#888', transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              Upload
+              {uploadIsProcessing && (
+                <div style={{ width: 14, height: 14, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              )}
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {receipts.length === 0 && <button onClick={() => { setReceipts(generateDemoData()); setTab("receipts"); }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #333', cursor: 'pointer', background: '#1a1a1a', color: '#aaa', fontWeight: 500, fontSize: 12, fontFamily: "'DM Sans', sans-serif", whiteSpace: 'nowrap' }}>Load Demo Data</button>}
+            {receipts.length > 1 && <button onClick={() => {
+              // Scan for and remove duplicates among existing receipts
+              const kept = [];
+              let removed = 0;
+              for (const r of receipts) {
+                const isDupe = kept.some(k => {
+                  if ((k.store||'').toLowerCase().trim() !== (r.store||'').toLowerCase().trim()) return false;
+                  if (k.date !== r.date) return false;
+                  if (Math.abs(k.total - r.total) > 1.00) return false;
+                  if (Math.abs(k.items.length - r.items.length) > 1) return false;
+                  // Check item totals overlap
+                  const kTotals = k.items.map(i => Number(i.total).toFixed(2)).sort();
+                  const rTotals = r.items.map(i => Number(i.total).toFixed(2)).sort();
+                  let matches = 0;
+                  const used = new Set();
+                  for (const kt of kTotals) { const idx = rTotals.findIndex((rt, i) => rt === kt && !used.has(i)); if (idx !== -1) { matches++; used.add(idx); } }
+                  return matches >= Math.min(kTotals.length, rTotals.length) * 0.5;
+                });
+                if (isDupe) removed++;
+                else kept.push(r);
+              }
+              if (removed > 0) {
+                if (window.confirm(`Found ${removed} duplicate receipt${removed !== 1 ? 's' : ''}. Remove them?`)) setReceipts(kept);
+              } else {
+                window.alert("No duplicates found!");
+              }
+            }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #9B6EC633', cursor: 'pointer', background: '#9B6EC611', color: '#9B6EC6', fontWeight: 500, fontSize: 12, fontFamily: "'DM Sans', sans-serif", whiteSpace: 'nowrap' }}>Scan Duplicates</button>}
+            {receipts.length > 0 && <button onClick={() => { if (window.confirm("Clear all " + receipts.length + " receipts?")) { setReceipts([]); setTab("upload"); } }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #E8654A33', cursor: 'pointer', background: '#E8654A11', color: '#E8654A', fontWeight: 500, fontSize: 12, fontFamily: "'DM Sans', sans-serif", whiteSpace: 'nowrap' }}>Clear All ({receipts.length})</button>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto' }}>
+
+        {/* Floating upload status — visible on ALL tabs when processing */}
+        {uploadIsProcessing && tab !== "upload" && (
+          <div onClick={() => setTab("upload")} style={{
+            background: 'rgba(232,101,74,0.08)', border: '1px solid #E8654A33', borderRadius: 12,
+            padding: '12px 18px', marginBottom: 16, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.2s',
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(232,101,74,0.12)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(232,101,74,0.08)'}
+          >
+            <div style={{ width: 22, height: 22, border: '2.5px solid #E8654A', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#E8654A', fontFamily: "'DM Sans', sans-serif" }}>
+                Uploading: {uploadActiveItem?.name || '...'}
+                <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>({uploadDoneCount + 1}/{uploadQueue.length})</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#888', fontFamily: "'DM Sans', sans-serif" }}>
+                {uploadActiveItem?.status === 'reading' ? 'Reading file...' : 'AI extracting receipts...'}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: '#E8654A', fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>View queue →</div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
+          <StatCard label="Total Spend" value={fmt(totalSpend)} sub={`${filtered.length} receipts`} color="#E8654A" />
+          <StatCard label="Avg / Receipt" value={fmt(avgPerReceipt)} sub="filtered results" color="#4A90D9" />
+          <StatCard label="Unique Items" value={uniqueItems} sub="materials tracked" color="#5EBB6E" />
+          <div onClick={() => setTab("stores")} style={{ cursor: 'pointer' }}>
+            <StatCard label="Stores" value={stores.length} sub="click to manage" color="#D4A843" />
+          </div>
+        </div>
+
+        {tab === "receipts" && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#aaa' }}>Filters</span>
+                <button onClick={clearFilters} style={{ background: 'none', border: 'none', color: '#E8654A', cursor: 'pointer', fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>Clear all</button>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Search..." style={{ ...sel, flex: '1 1 200px' }} />
+                <select value={filterStore} onChange={e => setFilterStore(e.target.value)} style={sel}><option value="all">All Stores</option>{stores.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                <select value={filterPO} onChange={e => setFilterPO(e.target.value)} style={sel}><option value="all">All POs</option>{pos.map(p => <option key={p} value={p}>{p}</option>)}</select>
+                <select value={filterMaterial} onChange={e => setFilterMaterial(e.target.value)} style={sel}><option value="all">All Materials</option>{materials.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                {types.length > 1 && <select value={filterType} onChange={e => setFilterType(e.target.value)} style={sel}><option value="all">All Types</option>{types.map(t => <option key={t} value={t}>{t}</option>)}</select>}
+                <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} style={{ ...sel, colorScheme: 'dark' }} />
+                <span style={{ color: '#555' }}>to</span>
+                <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} style={{ ...sel, colorScheme: 'dark' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
+                  <div style={{ fontSize: 16, color: '#888', marginBottom: 8, fontWeight: 600 }}>{receipts.length === 0 ? "No receipts yet" : "No receipts match your filters"}</div>
+                  <div style={{ fontSize: 13, color: '#555', marginBottom: 20 }}>{receipts.length === 0 ? "Upload a PDF to get started" : "Try adjusting your filters"}</div>
+                  {receipts.length === 0 && <button onClick={() => setTab("upload")} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: '#E8654A', color: '#fff', fontWeight: 600, fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>Upload PDF</button>}
+                </div>
+              )}
+              {filtered.map(r => (
+                <div key={r.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #222', borderRadius: 14, padding: '18px 22px', cursor: 'pointer', transition: 'all 0.2s' }}
+                  onClick={() => setViewReceipt(r)}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#E8654A44'; e.currentTarget.style.background = 'rgba(232,101,74,0.03)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                      <StoreLogo store={r.store} size={38} />
+                      <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                        <span style={{ fontSize: 16, fontWeight: 600 }}>{r.store}</span>
+                        {r.type === 'refund' && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#E8654A22', color: '#E8654A', fontWeight: 600 }}>REFUND</span>}
+                        {r.type === 'fuel' && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#4A90D922', color: '#4A90D9', fontWeight: 600 }}>FUEL</span>}
+                        {r.type === 'food' && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#D4A84322', color: '#D4A843', fontWeight: 600 }}>FOOD</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#888' }}>
+                        <span>{fmtDate(r.date)}</span>
+                        {r.po && <span style={{ background: '#252525', padding: '2px 8px', borderRadius: 6, color: '#aaa' }}>{r.po}</span>}
+                        <span>{r.items.length} item{r.items.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: r.type === 'refund' ? '#5EBB6E' : '#E8654A' }}>{fmt(r.total)}</div>
+                        <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove this ${r.store} receipt from ${fmtDate(r.date)}?`)) setReceipts(prev => prev.filter(x => x.id !== r.id)); }}
+                          title="Remove receipt"
+                          style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid transparent', background: 'transparent', color: '#444', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#E8654A'; e.currentTarget.style.borderColor = '#E8654A33'; e.currentTarget.style.background = '#E8654A11'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#444'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent'; }}
+                        >✕</button>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#555' }}>click to view</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {r.items.slice(0, 4).map(it => <span key={it.id} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: '#1a1a1a', color: '#999', border: '1px solid #252525' }}>{it.name}</span>)}
+                    {r.items.length > 4 && <span style={{ fontSize: 11, color: '#666', padding: '3px 6px' }}>+{r.items.length - 4} more</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === "pricing" && (<div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ marginBottom: 16 }}><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Pricing History</div><div style={{ fontSize: 13, color: '#666' }}>Track price changes across purchases</div></div>
+          {receipts.length === 0 ? <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>Upload receipts to see pricing history</div> : <PricingHistory receipts={receipts} onViewReceipt={r => setViewReceipt(r)} />}
+        </div>)}
+
+        {tab === "stores" && (() => {
+          const customLogos = {};
+          Object.entries(storeProfiles).forEach(([k, v]) => { if (v.logo) customLogos[k] = v.logo; });
+          // Build store data
+          const storeData = stores.map(storeName => {
+            const storeReceipts = receipts.filter(r => r.store === storeName);
+            const totalSpend = storeReceipts.reduce((s, r) => s + r.total, 0);
+            const itemMap = {};
+            storeReceipts.forEach(r => r.items.forEach(it => {
+              const key = it.materialId || it.name;
+              if (!itemMap[key]) itemMap[key] = { name: it.name, qty: 0, spend: 0 };
+              itemMap[key].qty += it.qty; itemMap[key].spend += it.total;
+            }));
+            const topItems = Object.values(itemMap).sort((a, b) => b.spend - a.spend).slice(0, 5);
+            const dates = storeReceipts.map(r => r.date).sort();
+            const profile = storeProfiles[storeName.toLowerCase().trim()] || {};
+            return { name: storeName, receipts: storeReceipts, totalSpend, topItems, dates, profile, receiptCount: storeReceipts.length };
+          }).sort((a, b) => b.totalSpend - a.totalSpend);
+          return (
+            <div style={{ animation: 'fadeIn 0.3s ease' }}>
+              <div style={{ marginBottom: 20 }}><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Stores</div><div style={{ fontSize: 13, color: '#666' }}>Manage vendor info, upload logos, and view purchase history</div></div>
+              {storeData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>Upload receipts to see your stores here</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {storeData.map(sd => (
+                    <StoreCard key={sd.name} sd={sd} customLogos={customLogos} storeProfiles={storeProfiles} setStoreProfiles={setStoreProfiles} setViewReceipt={setViewReceipt} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {tab === "search" && <SearchPanel receipts={receipts} onViewReceipt={r => setViewReceipt(r)} />}
+
+        {tab === "jobs" && <JobsPanel receipts={receipts} onViewReceipt={r => setViewReceipt(r)} />}
+
+        {tab === "reports" && <ReportsPanel receipts={receipts} stores={stores} />}
+
+        {tab === "dashboard" && (<div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Spending Dashboard</div><div style={{ fontSize: 13, color: '#666' }}>Analyze spending by store or material</div></div>
+            <div style={{ display: 'flex', gap: 4, background: '#1a1a1a', borderRadius: 10, padding: 4 }}>
+              {["store", "material"].map(v => <button key={v} onClick={() => setDashView(v)} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13, background: dashView === v ? '#E8654A' : 'transparent', color: dashView === v ? '#fff' : '#888', textTransform: 'capitalize' }}>{v}</button>)}
+            </div>
+          </div>
+          {receipts.length === 0 ? <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>Upload receipts to see spending data</div> : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 18, textTransform: 'uppercase', letterSpacing: 1 }}>Spend by {dashView}</div>
+                {dashData.length > 0 ? <BarChart data={dashData} showLogos={dashView === "store"} /> : <div style={{ color: '#555', textAlign: 'center', padding: 32 }}>No data</div>}
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 18, textTransform: 'uppercase', letterSpacing: 1 }}>Monthly Spend Trend</div>
+                {monthlyTrend.length > 0 ? (<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {monthlyTrend.map((m, i) => { const max = Math.max(...monthlyTrend.map(t => t.value), 1); return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 50, fontSize: 11, color: '#888', fontFamily: "'Space Mono', monospace", textAlign: 'right', flexShrink: 0 }}>{m.label}</div>
+                      <div style={{ flex: 1, height: 22, background: '#1a1a1a', borderRadius: 5, overflow: 'hidden' }}><div style={{ width: `${(m.value / max) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #4A90D9, #4A90D9aa)', borderRadius: 5, minWidth: 2 }} /></div>
+                      <div style={{ width: 80, fontSize: 12, color: '#ccc', fontFamily: "'Space Mono', monospace", textAlign: 'right', flexShrink: 0 }}>{fmt(m.value)}</div>
+                    </div>); })}
+                </div>) : <div style={{ color: '#555', textAlign: 'center', padding: 32 }}>No data</div>}
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, gridColumn: '1 / -1' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 18, textTransform: 'uppercase', letterSpacing: 1 }}>Top Purchases by Spend</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                  {(() => { const map = {}; filtered.forEach(r => r.items.forEach(it => { const key = it.materialId || it.name; if (!map[key]) map[key] = { name: it.name, qty: 0, spend: 0 }; map[key].qty += it.qty; map[key].spend += it.total; }));
+                    return Object.values(map).sort((a, b) => b.spend - a.spend).slice(0, 8).map((it, i) => (
+                      <div key={it.name} style={{ padding: '14px 16px', background: '#151515', borderRadius: 10, border: '1px solid #222' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#ddd', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 12, color: '#888' }}>{it.qty} units</span><span style={{ fontSize: 13, fontWeight: 700, color: COLORS[i % COLORS.length], fontFamily: "'Space Mono', monospace" }}>{fmt(it.spend)}</span></div>
+                      </div>));
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>)}
+
+        {tab === "files" && (<div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Scanned Files</div>
+            <div style={{ fontSize: 13, color: '#666' }}>View all uploaded PDFs and the receipts extracted from each one</div>
+          </div>
+          {receipts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: '#555' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📁</div>
+              <div style={{ fontSize: 16, color: '#888', marginBottom: 8, fontWeight: 600 }}>No scanned files yet</div>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 20 }}>Upload PDFs to see them here</div>
+              <button onClick={() => setTab("upload")} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', background: '#E8654A', color: '#fff', fontWeight: 600, fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>Upload PDF</button>
+            </div>
+          ) : (() => {
+            // Group receipts by fileName
+            const fileGroups = {};
+            receipts.forEach(r => {
+              const fname = r.fileName || 'Unknown File';
+              if (!fileGroups[fname]) fileGroups[fname] = { name: fname, receipts: [], totalSpend: 0, stores: new Set(), dates: new Set(), types: new Set() };
+              fileGroups[fname].receipts.push(r);
+              fileGroups[fname].totalSpend += r.total;
+              fileGroups[fname].stores.add(r.store);
+              fileGroups[fname].dates.add(r.date);
+              if (r.type) fileGroups[fname].types.add(r.type);
+            });
+            const files = Object.values(fileGroups).sort((a, b) => {
+              const aDate = Math.max(...a.receipts.map(r => new Date(r.date + 'T00:00:00').getTime()));
+              const bDate = Math.max(...b.receipts.map(r => new Date(r.date + 'T00:00:00').getTime()));
+              return bDate - aDate;
+            });
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {files.map(file => {
+                  const storeList = [...file.stores];
+                  const dateRange = [...file.dates].sort();
+                  const itemCount = file.receipts.reduce((s, r) => s + r.items.length, 0);
+                  return (
+                    <div key={file.name} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #222', borderRadius: 14, overflow: 'hidden' }}>
+                      {/* File header */}
+                      <div style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: '#1a1a1a', border: '1px solid #2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>📄</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: '#eee', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                          <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#888', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span>{file.receipts.length} receipt{file.receipts.length !== 1 ? 's' : ''}</span>
+                            <span>·</span>
+                            <span>{itemCount} item{itemCount !== 1 ? 's' : ''}</span>
+                            <span>·</span>
+                            <span>{dateRange.length === 1 ? fmtDate(dateRange[0]) : `${fmtDate(dateRange[0])} – ${fmtDate(dateRange[dateRange.length - 1])}`}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          {storeList.slice(0, 3).map(s => <StoreLogo key={s} store={s} size={26} />)}
+                          {storeList.length > 3 && <span style={{ fontSize: 11, color: '#666', alignSelf: 'center' }}>+{storeList.length - 3}</span>}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: '#E8654A' }}>{fmt(file.totalSpend)}</div>
+                        </div>
+                        <button onClick={() => {
+                          if (window.confirm(`Delete all ${file.receipts.length} receipt${file.receipts.length !== 1 ? 's' : ''} from "${file.name}"?\n\nThis will remove them from all tabs including pricing history and dashboard.`)) {
+                            const idsToRemove = new Set(file.receipts.map(r => r.id));
+                            setReceipts(prev => prev.filter(r => !idsToRemove.has(r.id)));
+                          }
+                        }}
+                          title="Delete all receipts from this file"
+                          style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid #E8654A22', background: '#E8654A08', color: '#E8654A88', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#E8654A'; e.currentTarget.style.background = '#E8654A22'; e.currentTarget.style.borderColor = '#E8654A44'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#E8654A88'; e.currentTarget.style.background = '#E8654A08'; e.currentTarget.style.borderColor = '#E8654A22'; }}
+                        >🗑️</button>
+                      </div>
+                      {/* Receipt list within this file */}
+                      <div style={{ borderTop: '1px solid #1e1e1e' }}>
+                        {file.receipts.map((r, ri) => (
+                          <div key={r.id} style={{
+                            padding: '10px 22px 10px 82px', borderBottom: ri < file.receipts.length - 1 ? '1px solid #1a1a1a' : 'none',
+                            display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', transition: 'background 0.15s',
+                          }}
+                            onClick={() => setViewReceipt(r)}
+                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(232,101,74,0.03)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <StoreLogo store={r.store} size={24} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: '#ccc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                {r.store}
+                                {r.type === 'refund' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#E8654A22', color: '#E8654A', fontWeight: 600 }}>REFUND</span>}
+                                {r.type === 'fuel' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#4A90D922', color: '#4A90D9', fontWeight: 600 }}>FUEL</span>}
+                                {r.type === 'food' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#D4A84322', color: '#D4A843', fontWeight: 600 }}>FOOD</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#666' }}>
+                                {fmtDate(r.date)}{r.po ? ` · ${r.po}` : ''} · {r.items.length} item{r.items.length !== 1 ? 's' : ''}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono', monospace", color: r.type === 'refund' ? '#5EBB6E' : '#ddd' }}>{fmt(r.total)}</div>
+                            <div style={{ fontSize: 10, color: '#555' }}>view →</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>)}
+
+        {tab === "upload" && (<div style={{ animation: 'fadeIn 0.3s ease', maxWidth: 600, margin: '0 auto' }}>
+          <div style={{ marginBottom: 20 }}><div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Upload Receipts</div><div style={{ fontSize: 13, color: '#666' }}>Upload PDF receipts — Claude AI reads each page and extracts real line items, prices, and totals</div></div>
+          <UploadPanel queue={uploadQueue} addToQueue={addToQueue} clearQueue={clearUploadQueue} removeFromQueue={removeFromQueue} totalResult={uploadTotalResult} onSwitchToReceipts={() => setTab("receipts")} />
+          <div style={{ marginTop: 24, padding: 20, background: 'rgba(255,255,255,0.02)', border: '1px solid #2a2a2a', borderRadius: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#aaa', marginBottom: 12 }}>Supported Formats</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[["🏗️","Menards","Register receipts, picking tickets, gate passes"],["🔶","Home Depot","Register receipts with PO/Job Name, refunds"],["⛽","Gas Stations","Fuel receipts with gallons and price/gal"],["🍔","Food / Other","Convenience store, restaurant, retail"]].map(([icon, title, desc], i) => (
+                <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{icon}</div>
+                  <div><div style={{ fontSize: 14, fontWeight: 600, color: '#ddd' }}>{title}</div><div style={{ fontSize: 12, color: '#777' }}>{desc}</div></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>)}
+      </div>
+      {viewReceipt && <ReceiptViewer receipt={viewReceipt} onClose={() => setViewReceipt(null)} />}
+    </div>
+    </CustomLogosContext.Provider>
+  );
+}
+
+// Mount the app
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(ReceiptManager));
+  </script>
+</body>
+</html>
